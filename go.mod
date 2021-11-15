@@ -1,4 +1,4 @@
-module github.com/moovfinancial/brand-gateway
+module github.com/moovfinancial/brand-client
 
 go 1.17
 
