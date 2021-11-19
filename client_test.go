@@ -31,7 +31,6 @@ func (c *Client) Connect(addr string) error {
 	}
 	c.conn = conn
 
-	// start reading loop
 	go c.writeLoop()
 	go c.readLoop()
 
@@ -64,14 +63,12 @@ func (c *Client) Send(msg string) (string, error) {
 		errCh:      make(chan error),
 	}
 
-	c.respMap[req.requestID] = req.replyCh
-
 	var resp string
 	var err error
 	c.requestsCh <- req
 	select {
 	// we can add timeout here as well
-	//
+	// ...
 	case resp = <-req.replyCh:
 	case err = <-req.errCh:
 	}
@@ -80,17 +77,27 @@ func (c *Client) Send(msg string) (string, error) {
 }
 
 func (c *Client) writeLoop() {
-	//
-	for msg := range c.requestsCh {
-		_, err := c.conn.Write([]byte(msg.isoMessage))
+	// TODO
+	// we should either (select)
+	// * send heartbeat message
+	// * read request from requestsCh
+	// * if client was closed, reject all outstanding requests and return
+	for req := range c.requestsCh {
+		c.respMap[req.requestID] = req.replyCh
+		_, err := c.conn.Write([]byte(req.isoMessage))
 		if err != nil {
-			msg.errCh <- err
-			// handle write error: reconnect? panic?
+			req.errCh <- err
+			// delete request from respMap
+			// handle write error: reconnect? shutdown? panic?
 		}
 	}
 }
 
 func (c *Client) readLoop() {
+	// TODO
+	// read messages from the connection
+	// if we got error during reading, what should we do? should we reconnect?
+	// if client was closed, set timeout and wait for all pending requests to be replied and return
 	r := bufio.NewReader(c.conn)
 	scanner := bufio.NewScanner(r)
 
@@ -102,6 +109,10 @@ func (c *Client) readLoop() {
 			replyCh <- msg
 			// this one should be done inside mutex lock
 			delete(c.respMap, reqID)
+		} else {
+			// we should log information about received message
+			// as there is no one to give it to
+			// maybe create a lost message queue?
 		}
 	}
 	if err := scanner.Err(); err != nil {
