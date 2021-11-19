@@ -38,6 +38,6 @@ func main() {
 
 	err = describe.Message(os.Stdout, message)
 	if err != nil {
-		panic(fmt.Sprintf("describing message: %w", err))
+		panic(fmt.Sprintf("describing message: %v", err))
 	}
 }
