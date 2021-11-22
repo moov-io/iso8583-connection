@@ -2,15 +2,21 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"net"
 	"os"
+	"sync"
 )
+
+var ErrConnectionClosed = errors.New("connection closed")
 
 type Client struct {
 	conn       net.Conn
 	requestsCh chan request
 	respMap    map[string]chan *Message
+	mutex      sync.Mutex // to protect following
+	closing    bool       // user has called Close
 }
 
 func NewClient() *Client {
@@ -34,6 +40,11 @@ func (c *Client) Connect(addr string) error {
 }
 
 func (c *Client) Close() error {
+	c.mutex.Lock()
+	// if we are closing already, return error
+	c.closing = true
+	c.mutex.Unlock()
+
 	return c.conn.Close()
 }
 
@@ -56,6 +67,13 @@ func requestID(msg *Message) string {
 
 // send message and waits for the response
 func (c *Client) Send(msg *Message) (*Message, error) {
+	c.mutex.Lock()
+	if c.closing {
+		c.mutex.Unlock()
+		return nil, ErrConnectionClosed
+	}
+	c.mutex.Unlock()
+
 	// prepare message
 	req := request{
 		isoMessage: msg,
@@ -85,7 +103,10 @@ func (c *Client) writeLoop() {
 	// * read request from requestsCh
 	// * if client was closed, reject all outstanding requests and return
 	for req := range c.requestsCh {
+		// TODO:
+		// we should lock here before modifying a map
 		c.respMap[req.requestID] = req.replyCh
+
 		_, err := c.conn.Write([]byte(req.isoMessage.Msg))
 		if err != nil {
 			req.errCh <- err
@@ -122,7 +143,18 @@ func (c *Client) readLoop() {
 			// maybe create a lost message queue?
 		}
 	}
-	if err := scanner.Err(); err != nil {
+	err := scanner.Err()
+
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	// if we receive error and we are closing connection, we have to set
+	// err to ErrConnectionClosed otherwise just use err itself this if
+	// should be reworked when we remove scanner and replace it with
+	// reading from network
+	if err != nil && !c.closing {
 		fmt.Fprintln(os.Stderr, "reading standard input:", err)
 	}
+
+	// we should send err to all outstanding (pending) requests
 }

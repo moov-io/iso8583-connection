@@ -30,3 +30,23 @@ func TestClientConnect(t *testing.T) {
 
 	require.NoError(t, client.Close())
 }
+
+func TestClient_Send(t *testing.T) {
+	server, err := NewServer()
+	require.NoError(t, err)
+	defer server.Close()
+
+	client := NewClient()
+	err = client.Connect(server.Addr)
+	require.NoError(t, err)
+
+	t.Run("when Close was called", func(t *testing.T) {
+		_, err := client.Send(&Message{Msg: "ping 1"})
+		require.NoError(t, err)
+
+		require.NoError(t, client.Close())
+
+		_, err = client.Send(&Message{Msg: "ping 1"})
+		require.Equal(t, ErrConnectionClosed, err)
+	})
+}
