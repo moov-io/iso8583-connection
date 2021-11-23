@@ -1,12 +1,19 @@
 package main
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net"
+	"os"
 	"sync"
 	"time"
+
+	"github.com/moov-io/iso8583"
+	"github.com/moov-io/iso8583/cmd/iso8583/describe"
+	"github.com/moov-io/iso8583/network"
 )
 
 type Server struct {
@@ -69,7 +76,7 @@ func (s *Server) Close() {
 func (s *Server) handleConnection(conn net.Conn) {
 	defer conn.Close()
 
-	buf := make([]byte, 2048)
+	// buf := make([]byte, 2048)
 ReadLoop:
 	for {
 		select {
@@ -81,12 +88,15 @@ ReadLoop:
 			// the approach is described here
 			// https://eli.thegreenplace.net/2020/graceful-shutdown-of-a-tcp-server-in-go/
 			conn.SetDeadline(time.Now().Add(200 * time.Millisecond))
-			n, err := conn.Read(buf)
+
+			header := network.NewVMLHeader()
+			n, err := header.ReadFrom(conn)
 			if err != nil {
-				if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
+				var e *net.OpError
+				if errors.As(err, &e) && e.Timeout() {
 					continue ReadLoop
-				} else if err != io.EOF {
-					log.Println("read error", err)
+				} else if !errors.Is(err, io.EOF) { // if connection was not closed from the other side
+					log.Printf("reading header: %v\n", err)
 					return
 				}
 			}
@@ -94,9 +104,60 @@ ReadLoop:
 				return
 			}
 
-			response := fmt.Sprintf("%s pong\n", string(buf[:n]))
-			conn.Write([]byte(response))
-			log.Printf("Response: %s", response)
+			packed := make([]byte, header.Length())
+			_, err = conn.Read(packed)
+			if err != nil {
+				log.Printf("reading message: %v\n", err)
+				return
+			}
+
+			err = s.handleMessage(conn, packed)
+			if err != nil {
+				log.Printf("handling message: %v\n", err)
+				// handle error here
+				return
+			}
 		}
 	}
+}
+
+func (s *Server) handleMessage(conn net.Conn, packed []byte) error {
+	message := iso8583.NewMessage(brandSpec)
+	err := message.Unpack(packed)
+	if err != nil {
+		return fmt.Errorf("unpacking message: %v", err)
+	}
+
+	describe.Message(os.Stdout, message)
+
+	// for now, we just reply
+	message.MTI("0810")
+
+	return s.send(conn, message)
+}
+
+func (s *Server) send(conn net.Conn, message *iso8583.Message) error {
+	var buf bytes.Buffer
+	packed, err := message.Pack()
+	if err != nil {
+		return fmt.Errorf("packing message: %v", err)
+	}
+
+	// create header
+	header := network.NewVMLHeader()
+	header.SetLength(len(packed))
+
+	_, err = header.WriteTo(&buf)
+	if err != nil {
+		return fmt.Errorf("writing message header: %v", err)
+	}
+
+	_, err = buf.Write(packed)
+	if err != nil {
+		return fmt.Errorf("writing packed message to buffer: %v", err)
+	}
+
+	_, err = conn.Write([]byte(buf.Bytes()))
+
+	return err
 }

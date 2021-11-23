@@ -2,6 +2,8 @@ module github.com/moovfinancial/brand-client
 
 go 1.17
 
+replace github.com/moov-io/iso8583 => /Users/alovak/dev/moov/iso8583
+
 require (
 	github.com/moov-io/iso8583 v0.6.8
 	github.com/stretchr/testify v1.7.0
