@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
 	"sync"
@@ -19,12 +20,14 @@ var ErrConnectionClosed = errors.New("connection closed")
 type Client struct {
 	conn       net.Conn
 	requestsCh chan request
-	respMap    map[string]chan *iso8583.Message
+
+	pendingRequestsMu sync.Mutex
+	respMap           map[string]chan *iso8583.Message
 
 	// WaitGroup to wait for all Send calls to finish
 	wg sync.WaitGroup
 
-	// to protect following
+	// to protect following: closing, STAN
 	mutex sync.Mutex
 
 	// user has called Close
@@ -194,14 +197,18 @@ func (c *Client) writeLoop() {
 	// * read request from requestsCh
 	for req := range c.requestsCh {
 		// TODO we should lock here before modifying a map
+		c.pendingRequestsMu.Lock()
 		c.respMap[req.requestID] = req.replyCh
+		c.pendingRequestsMu.Unlock()
 
 		_, err := c.conn.Write([]byte(req.rawMessage))
 		if err != nil {
 			req.errCh <- err
-			// TODO: delete request from respMap + with mutext
-			// TODO: handle write error: reconnect? shutdown? panic?
+			c.pendingRequestsMu.Lock()
+			delete(c.respMap, req.requestID)
+			c.pendingRequestsMu.Unlock()
 		}
+		// TODO: handle write error: reconnect, re-try?, etc.
 	}
 }
 
@@ -223,45 +230,50 @@ func (c *Client) readLoop() {
 		}
 
 		// read the packed message
-		raw := make([]byte, header.Length())
-		_, err = io.ReadFull(r, raw)
+		rawMessage := make([]byte, header.Length())
+		_, err = io.ReadFull(r, rawMessage)
 		if err != nil {
 			break
 		}
 
-		// create message
-		message := iso8583.NewMessage(brandSpec)
-		err = message.Unpack(raw)
-		if err != nil {
-			break
-		}
+		go c.handleResponse(rawMessage)
 
-		reqID, err := requestID(message)
-		if err != nil {
-			break
-		}
-
-		// send response message to the reply channel
-		if replyCh, found := c.respMap[reqID]; found {
-			replyCh <- message
-			// TODO: this one should be done inside mutex lock
-			delete(c.respMap, reqID)
-		} else {
-			// we should log information about received message as
-			// there is no one to give it to. Maybe create a lost
-			// message queue?
-		}
 	}
 
+	// lock before checking `closing`
 	c.mutex.Lock()
-	defer c.mutex.Unlock()
-
 	// if we receive error and we are closing connection, we have to set
-	// err to ErrConnectionClosed otherwise just use err itself this if
 	if err != nil && !c.closing {
 		fmt.Fprintln(os.Stderr, "reading from socket:", err)
 	}
+	c.mutex.Unlock()
 
+}
+
+func (c *Client) handleResponse(rawMessage []byte) {
+	// create message
+	message := iso8583.NewMessage(brandSpec)
+	err := message.Unpack(rawMessage)
+	if err != nil {
+		log.Printf("unpacking message: %v", err)
+		return
+	}
+
+	reqID, err := requestID(message)
+	if err != nil {
+		log.Printf("getting request ID: %v", err)
+		return
+	}
+
+	// send response message to the reply channel
+	c.pendingRequestsMu.Lock()
+	if replyCh, found := c.respMap[reqID]; found {
+		replyCh <- message
+		delete(c.respMap, reqID)
+	} else {
+		log.Printf("can't find request for ID: %s", reqID)
+	}
+	c.pendingRequestsMu.Unlock()
 }
 
 // Assumptions:
