@@ -20,9 +20,18 @@ type Client struct {
 	conn       net.Conn
 	requestsCh chan request
 	respMap    map[string]chan *iso8583.Message
-	mutex      sync.Mutex // to protect following
-	closing    bool       // user has called Close
-	stan       int32      // STAN counter, max can be 999999
+
+	// WaitGroup to wait for all Send calls to finish
+	wg sync.WaitGroup
+
+	// to protect following
+	mutex sync.Mutex
+
+	// user has called Close
+	closing bool
+
+	// STAN counter, max can be 999999
+	stan int32
 }
 
 func NewClient() *Client {
@@ -47,22 +56,39 @@ func (c *Client) Connect(addr string) error {
 
 func (c *Client) Close() error {
 	c.mutex.Lock()
-	// if we are closing already, return error
+	// if we are closing already, just return
+	if c.closing {
+		c.mutex.Unlock()
+		return nil
+	}
 	c.closing = true
 	c.mutex.Unlock()
+
+	// wait for all requests to complete before closing the connection
+	c.wg.Wait()
 
 	return c.conn.Close()
 }
 
 type request struct {
-	rawMessage []byte // includes length header and message itself
-	requestID  string
-	replyCh    chan *iso8583.Message
-	errCh      chan error
+	// includes length header and message itself
+	rawMessage []byte
+
+	// ID of the request (based on STAN, RRN, etc.)
+	requestID string
+
+	// channel to receive reply from the server
+	replyCh chan *iso8583.Message
+
+	// channel to receive error that may happen down the road
+	errCh chan error
 }
 
 // send message and waits for the response
 func (c *Client) Send(message *iso8583.Message) (*iso8583.Message, error) {
+	c.wg.Add(1)
+	defer c.wg.Done()
+
 	c.mutex.Lock()
 	if c.closing {
 		c.mutex.Unlock()
@@ -116,7 +142,7 @@ func (c *Client) Send(message *iso8583.Message) (*iso8583.Message, error) {
 	c.requestsCh <- req
 
 	select {
-	// we can add timeout here as well
+	// we can add timeout here so it can be handled on the higher level
 	// ...
 	case resp = <-req.replyCh:
 	case err = <-req.errCh:
@@ -166,7 +192,6 @@ func (c *Client) writeLoop() {
 	// we should either (select)
 	// * send heartbeat message
 	// * read request from requestsCh
-	// * if client was closed, reject all outstanding requests and return
 	for req := range c.requestsCh {
 		// TODO we should lock here before modifying a map
 		c.respMap[req.requestID] = req.replyCh
@@ -233,16 +258,13 @@ func (c *Client) readLoop() {
 
 	// if we receive error and we are closing connection, we have to set
 	// err to ErrConnectionClosed otherwise just use err itself this if
-	// should be reworked when we remove scanner and replace it with
-	// reading from network
 	if err != nil && !c.closing {
-		fmt.Fprintln(os.Stderr, "reading standard input:", err)
+		fmt.Fprintln(os.Stderr, "reading from socket:", err)
 	}
 
-	// we should send err to all outstanding (pending) requests
 }
 
-// Some assumptions:
+// Assumptions:
 // * We can use the same STAN after request/response messages for such STAN were handled
 // * STAN can be incremented but it MAX is 999999 it means we can start from 0 when we reached max
 func (c *Client) getSTAN() string {

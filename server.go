@@ -7,12 +7,10 @@ import (
 	"io"
 	"log"
 	"net"
-	"os"
 	"sync"
 	"time"
 
 	"github.com/moov-io/iso8583"
-	"github.com/moov-io/iso8583/cmd/iso8583/describe"
 	"github.com/moov-io/iso8583/network"
 )
 
@@ -111,36 +109,46 @@ ReadLoop:
 				return
 			}
 
-			err = s.handleMessage(conn, packed)
-			if err != nil {
-				log.Printf("handling message: %v\n", err)
-				// handle error here
-				return
-			}
+			go s.handleMessage(conn, packed)
 		}
 	}
 }
 
-func (s *Server) handleMessage(conn net.Conn, packed []byte) error {
+func (s *Server) handleMessage(conn net.Conn, packed []byte) {
 	message := iso8583.NewMessage(brandSpec)
 	err := message.Unpack(packed)
 	if err != nil {
-		return fmt.Errorf("unpacking message: %v", err)
+		log.Printf("unpacking message: %v", err)
+		return
 	}
 
-	describe.Message(os.Stdout, message)
-
+	// We can handle different test cases here
 	// for now, we just reply
 	message.MTI("0810")
 
-	return s.send(conn, message)
+	// check if network management information code
+	// was set to specific test case value
+	f70 := message.GetField(70)
+	if f70 != nil {
+		code, err := f70.String()
+		if err != nil {
+			log.Printf("getting field 70: %v", err)
+			return
+		}
+		// testing value to "sleep" for a 3 seconds
+		if code == "777" {
+			time.Sleep(500 * time.Millisecond)
+		}
+	}
+
+	s.send(conn, message)
 }
 
-func (s *Server) send(conn net.Conn, message *iso8583.Message) error {
+func (s *Server) send(conn net.Conn, message *iso8583.Message) {
 	var buf bytes.Buffer
 	packed, err := message.Pack()
 	if err != nil {
-		return fmt.Errorf("packing message: %v", err)
+		log.Printf("packing message: %v", err)
 	}
 
 	// create header
@@ -149,15 +157,17 @@ func (s *Server) send(conn net.Conn, message *iso8583.Message) error {
 
 	_, err = header.WriteTo(&buf)
 	if err != nil {
-		return fmt.Errorf("writing message header: %v", err)
+		log.Printf("writing message header: %v", err)
 	}
 
 	_, err = buf.Write(packed)
 	if err != nil {
-		return fmt.Errorf("writing packed message to buffer: %v", err)
+		log.Printf("writing packed message to buffer: %v", err)
 	}
 
 	_, err = conn.Write([]byte(buf.Bytes()))
+	if err != nil {
+		log.Printf("writing buffer into the socket: %v", err)
+	}
 
-	return err
 }

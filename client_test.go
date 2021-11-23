@@ -1,6 +1,7 @@
 package main
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -56,34 +57,41 @@ func TestClient_Send(t *testing.T) {
 		require.Equal(t, ErrConnectionClosed, err)
 	})
 
-	// t.Run("pending requests should return error when Close was called", func(t *testing.T) {
-	// 	client := NewClient()
-	// 	err = client.Connect(server.Addr)
-	// 	require.NoError(t, err)
+	t.Run("pending requests should complete after Close was called", func(t *testing.T) {
+		client := NewClient()
+		err = client.Connect(server.Addr)
+		require.NoError(t, err)
 
-	// 	// we have to somehow ask server to delay response
-	// 	// when we switch from "string" messages, we can rely on
-	// 	// account number for such tests
-	// 	var wg sync.WaitGroup
-	// 	for i := 0; i < 10; i++ {
-	// 		wg.Add(1)
-	// 		go func(i int) {
-	// 			defer func() {
-	// 				fmt.Println("Done!")
-	// 				wg.Done()
-	// 			}()
+		var wg sync.WaitGroup
+		for i := 0; i < 10; i++ {
+			wg.Add(1)
+			go func(i int) {
+				defer func() {
+					wg.Done()
+				}()
 
-	// 			str := fmt.Sprintf("delay %d\n", i)
+				// network management message
+				message := iso8583.NewMessage(brandSpec)
+				message.MTI("0800")
 
-	// 			client.Send(&Message{Msg: str})
-	// 			// _, err := client.Send(&Message{Msg: fmt.Sprintf("delay %d", i)})
-	// 			// require.Equal(t, ErrConnectionClosed, err)
-	// 		}(i)
-	// 	}
+				// using 777 value for the field, we tell server
+				// to sleep for 500ms when process the message
+				require.NoError(t, message.Field(70, "777"))
 
-	// 	time.Sleep(3 * time.Second)
+				response, err := client.Send(message)
+				require.NoError(t, err)
 
-	// 	require.NoError(t, client.Close())
-	// 	wg.Wait()
-	// })
+				mti, err := response.GetMTI()
+				require.NoError(t, err)
+				require.Equal(t, "0810", mti)
+			}(i)
+		}
+
+		// let's wait all messages to be sent
+		time.Sleep(200 * time.Millisecond)
+
+		// while server is waiting, we will close the connection
+		require.NoError(t, client.Close())
+		wg.Wait()
+	})
 }

@@ -405,6 +405,12 @@ var brandSpec *iso8583.MessageSpec = &iso8583.MessageSpec{
 			Enc:         encoding.BytesToASCIIHex,
 			Pref:        prefix.Hex.Fixed,
 		}),
+		70: field.NewNumeric(&field.Spec{
+			Length:      3,
+			Description: "Network Management Information Code",
+			Enc:         encoding.ASCII,
+			Pref:        prefix.ASCII.Fixed,
+		}),
 		90: field.NewString(&field.Spec{
 			Length:      42,
 			Description: "Original Data Elements",
