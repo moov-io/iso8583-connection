@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestClientConnect(t *testing.T) {
+func TestClient_Connect(t *testing.T) {
 	server, err := NewServer()
 	require.NoError(t, err)
 	defer server.Close()
@@ -18,22 +18,6 @@ func TestClientConnect(t *testing.T) {
 	client := NewClient()
 	err = client.Connect(server.Addr)
 	require.NoError(t, err)
-	defer client.Close()
-
-	// network management message
-	message := iso8583.NewMessage(brandSpec)
-	message.MTI("0800")
-	message.Field(70, "777")
-
-	// we can send iso message to the server
-	response, err := client.Send(message)
-	require.NoError(t, err)
-	time.Sleep(1 * time.Second)
-
-	mti, err := response.GetMTI()
-	require.NoError(t, err)
-	require.Equal(t, "0810", mti)
-
 	require.NoError(t, client.Close())
 }
 
@@ -41,6 +25,28 @@ func TestClient_Send(t *testing.T) {
 	server, err := NewServer()
 	require.NoError(t, err)
 	defer server.Close()
+
+	t.Run("sends messages to server and receives responses", func(t *testing.T) {
+		client := NewClient()
+		err = client.Connect(server.Addr)
+		require.NoError(t, err)
+
+		// network management message
+		message := iso8583.NewMessage(brandSpec)
+		message.MTI("0800")
+		message.Field(70, "777")
+
+		// we can send iso message to the server
+		response, err := client.Send(message)
+		require.NoError(t, err)
+		time.Sleep(1 * time.Second)
+
+		mti, err := response.GetMTI()
+		require.NoError(t, err)
+		require.Equal(t, "0810", mti)
+
+		require.NoError(t, client.Close())
+	})
 
 	t.Run("it returns ErrConnectionClosed when Close was called", func(t *testing.T) {
 		client := NewClient()

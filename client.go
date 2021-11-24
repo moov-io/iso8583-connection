@@ -26,7 +26,7 @@ type Options struct {
 	SendTimeout time.Duration
 
 	// IdleTime is the period at which the client will be sending ping
-	// message to the server, disabled if 0 or negative.
+	// message to the server
 	IdleTime time.Duration
 }
 
