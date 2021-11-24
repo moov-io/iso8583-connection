@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/moov-io/iso8583"
 	"github.com/moov-io/iso8583/network"
@@ -17,9 +18,29 @@ import (
 
 var ErrConnectionClosed = errors.New("connection closed")
 
+type Options struct {
+	// SendTimeout sets the timeout for a Send operation
+	SendTimeout time.Duration
+
+	// IdleTime is the period at which the client will be sending ping
+	// message to the server, disabled if 0 or negative.
+	IdleTime time.Duration
+}
+
+type Option func(*Options)
+
+func GetDefaultOptions() Options {
+	return Options{
+		SendTimeout: 30 * time.Second,
+		IdleTime:    5 * time.Second,
+	}
+}
+
 type Client struct {
+	opts       Options
 	conn       net.Conn
 	requestsCh chan request
+	done       chan struct{}
 
 	pendingRequestsMu sync.Mutex
 	respMap           map[string]chan *iso8583.Message
@@ -37,9 +58,16 @@ type Client struct {
 	stan int32
 }
 
-func NewClient() *Client {
+func NewClient(options ...Option) *Client {
+	opts := GetDefaultOptions()
+	for _, opt := range options {
+		opt(&opts)
+	}
+
 	return &Client{
+		opts:       opts,
 		requestsCh: make(chan request),
+		done:       make(chan struct{}),
 		respMap:    make(map[string]chan *iso8583.Message),
 	}
 }
@@ -69,6 +97,8 @@ func (c *Client) Close() error {
 
 	// wait for all requests to complete before closing the connection
 	c.wg.Wait()
+
+	close(c.done)
 
 	return c.conn.Close()
 }
@@ -145,10 +175,11 @@ func (c *Client) Send(message *iso8583.Message) (*iso8583.Message, error) {
 	c.requestsCh <- req
 
 	select {
-	// we can add timeout here so it can be handled on the higher level
+	// we can add timeout here so it can be handled on a higher level
 	// ...
 	case resp = <-req.replyCh:
 	case err = <-req.errCh:
+		// case <-time.After(messa
 	}
 
 	return resp, err
@@ -189,35 +220,55 @@ func requestID(message *iso8583.Message) (string, error) {
 	return stan, nil
 }
 
-// TODO: when do we return from this goroutine?
 func (c *Client) writeLoop() {
-	// TODO
-	// we should either (select)
-	// * send heartbeat message
-	// * read request from requestsCh
-	for req := range c.requestsCh {
-		// TODO we should lock here before modifying a map
-		c.pendingRequestsMu.Lock()
-		c.respMap[req.requestID] = req.replyCh
-		c.pendingRequestsMu.Unlock()
-
-		_, err := c.conn.Write([]byte(req.rawMessage))
-		if err != nil {
-			req.errCh <- err
+	for {
+		select {
+		case req := <-c.requestsCh:
 			c.pendingRequestsMu.Lock()
-			delete(c.respMap, req.requestID)
+			c.respMap[req.requestID] = req.replyCh
 			c.pendingRequestsMu.Unlock()
+
+			_, err := c.conn.Write([]byte(req.rawMessage))
+			if err != nil {
+				req.errCh <- err
+				c.pendingRequestsMu.Lock()
+				delete(c.respMap, req.requestID)
+				c.pendingRequestsMu.Unlock()
+			}
+		case <-time.After(c.opts.IdleTime):
+			// if no message was sent during idle time, we have to send ping message
+			go c.sendPingMessage()
+		case <-c.done:
+			return
 		}
-		// TODO: handle write error: reconnect, re-try?, etc.
+
+	}
+	// TODO: handle write error: reconnect, re-try?, etc.
+}
+
+func (c *Client) sendPingMessage() {
+	pingMessage := iso8583.NewMessage(brandSpec)
+	pingMessage.MTI("0800")
+	pingMessage.Field(70, "371")
+
+	response, err := c.Send(pingMessage)
+	if err != nil {
+		log.Printf("sending ping message: %v", err)
+		return
+	}
+
+	mti, err := response.GetMTI()
+	if err != nil {
+		log.Printf("getting ping message MTI: %v", err)
+		return
+	}
+
+	if mti != "0810" {
+		log.Printf("unexpected MTI for ping message response: %s", mti)
 	}
 }
 
-// TODO: when do we return from this goroutine
 func (c *Client) readLoop() {
-	// TODO
-	// read messages from the connection
-	// if we got error during reading, what should we do? should we reconnect?
-	// if client was closed, set timeout and wait for all pending requests to be replied and return
 	var err error
 
 	r := bufio.NewReader(c.conn)
@@ -240,7 +291,7 @@ func (c *Client) readLoop() {
 
 	}
 
-	// lock before checking `closing`
+	// lock to check `closing`
 	c.mutex.Lock()
 	// if we receive error and we are closing connection, we have to set
 	if err != nil && !c.closing {

@@ -20,6 +20,11 @@ type Server struct {
 	wg   sync.WaitGroup
 
 	closeCh chan bool
+
+	// to protect following
+	mutex sync.Mutex
+
+	receivedPings int
 }
 
 func NewServer() (*Server, error) {
@@ -135,9 +140,17 @@ func (s *Server) handleMessage(conn net.Conn, packed []byte) {
 			log.Printf("getting field 70: %v", err)
 			return
 		}
-		// testing value to "sleep" for a 3 seconds
-		if code == "777" {
+
+		switch code {
+		case "777":
+			// testing value to "sleep" for a 3 seconds
 			time.Sleep(500 * time.Millisecond)
+
+		case "371":
+			// ping request received
+			s.mutex.Lock()
+			s.receivedPings++
+			s.mutex.Unlock()
 		}
 	}
 
@@ -170,4 +183,13 @@ func (s *Server) send(conn net.Conn, message *iso8583.Message) {
 		log.Printf("writing buffer into the socket: %v", err)
 	}
 
+}
+
+func (s *Server) RecivedPings() int {
+	var pings int
+	s.mutex.Lock()
+	pings = s.receivedPings
+	s.mutex.Unlock()
+
+	return pings
 }

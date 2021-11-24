@@ -18,6 +18,7 @@ func TestClientConnect(t *testing.T) {
 	client := NewClient()
 	err = client.Connect(server.Addr)
 	require.NoError(t, err)
+	defer client.Close()
 
 	// network management message
 	message := iso8583.NewMessage(brandSpec)
@@ -45,6 +46,7 @@ func TestClient_Send(t *testing.T) {
 		client := NewClient()
 		err = client.Connect(server.Addr)
 		require.NoError(t, err)
+		defer client.Close()
 
 		// network management message
 		message := iso8583.NewMessage(brandSpec)
@@ -61,6 +63,7 @@ func TestClient_Send(t *testing.T) {
 		client := NewClient()
 		err = client.Connect(server.Addr)
 		require.NoError(t, err)
+		defer client.Close()
 
 		var wg sync.WaitGroup
 		for i := 0; i < 10; i++ {
@@ -94,4 +97,28 @@ func TestClient_Send(t *testing.T) {
 		require.NoError(t, client.Close())
 		wg.Wait()
 	})
+
+	t.Run("automatically sends ping messages after ping interval", func(t *testing.T) {
+		// we create server instance here to isolate pings count
+		server, err := NewServer()
+		require.NoError(t, err)
+		defer server.Close()
+
+		client := NewClient(func(opts *Options) {
+			opts.IdleTime = 50 * time.Millisecond
+		})
+
+		err = client.Connect(server.Addr)
+		require.NoError(t, err)
+		defer client.Close()
+
+		// we expect that ping interval in 50ms has not passed yet
+		// and server has not being pinged
+		require.Equal(t, 0, server.RecivedPings())
+
+		time.Sleep(200 * time.Millisecond)
+
+		require.True(t, server.RecivedPings() > 0)
+	})
+
 }
