@@ -127,9 +127,15 @@ func (s *Server) handleMessage(conn net.Conn, packed []byte) {
 		return
 	}
 
-	// We can handle different test cases here
-	// for now, we just reply
-	message.MTI("0810")
+	mti, err := message.GetMTI()
+	if err != nil {
+		log.Printf("getting MTI: %v", err)
+		return
+	}
+
+	// set mti function to response
+	newMTI := mti[:2] + "1" + mti[3:]
+	message.MTI(newMTI)
 
 	// check if network management information code
 	// was set to specific test case value
