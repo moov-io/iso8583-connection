@@ -46,7 +46,6 @@ func TestClient_Send(t *testing.T) {
 		client := NewClient()
 		err = client.Connect(server.Addr)
 		require.NoError(t, err)
-		defer client.Close()
 
 		// network management message
 		message := iso8583.NewMessage(brandSpec)
@@ -57,6 +56,33 @@ func TestClient_Send(t *testing.T) {
 
 		_, err = client.Send(message)
 		require.Equal(t, ErrConnectionClosed, err)
+	})
+
+	t.Run("it returns ErrSendTimeout when response was not received during SendTimeout time", func(t *testing.T) {
+		client := NewClient(func(opts *Options) {
+			opts.SendTimeout = 100 * time.Millisecond
+		})
+		err = client.Connect(server.Addr)
+		require.NoError(t, err)
+		defer client.Close()
+
+		// regular network management message
+		message := iso8583.NewMessage(brandSpec)
+		message.MTI("0800")
+
+		_, err := client.Send(message)
+		require.NoError(t, err)
+
+		// network management message to test timeout
+		message = iso8583.NewMessage(brandSpec)
+		message.MTI("0800")
+
+		// using 777 value for the field, we tell server
+		// to sleep for 500ms when process the message
+		require.NoError(t, message.Field(70, "777"))
+
+		_, err = client.Send(message)
+		require.Equal(t, ErrSendTimeout, err)
 	})
 
 	t.Run("pending requests should complete after Close was called", func(t *testing.T) {

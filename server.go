@@ -182,7 +182,6 @@ func (s *Server) send(conn net.Conn, message *iso8583.Message) {
 	if err != nil {
 		log.Printf("writing buffer into the socket: %v", err)
 	}
-
 }
 
 func (s *Server) RecivedPings() int {

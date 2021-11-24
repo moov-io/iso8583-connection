@@ -16,7 +16,10 @@ import (
 	"github.com/moov-io/iso8583/network"
 )
 
-var ErrConnectionClosed = errors.New("connection closed")
+var (
+	ErrConnectionClosed = errors.New("connection closed")
+	ErrSendTimeout      = errors.New("message send timeout")
+)
 
 type Options struct {
 	// SendTimeout sets the timeout for a Send operation
@@ -175,11 +178,10 @@ func (c *Client) Send(message *iso8583.Message) (*iso8583.Message, error) {
 	c.requestsCh <- req
 
 	select {
-	// we can add timeout here so it can be handled on a higher level
-	// ...
 	case resp = <-req.replyCh:
 	case err = <-req.errCh:
-		// case <-time.After(messa
+	case <-time.After(c.opts.SendTimeout):
+		err = ErrSendTimeout
 	}
 
 	return resp, err
