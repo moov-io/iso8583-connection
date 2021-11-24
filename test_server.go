@@ -14,7 +14,8 @@ import (
 	"github.com/moov-io/iso8583/network"
 )
 
-type Server struct {
+// TestServer is a sandbox server for iso8583. Actually, it dreams to be a real sanbox.
+type TestServer struct {
 	ln   net.Listener
 	Addr string
 	wg   sync.WaitGroup
@@ -27,14 +28,14 @@ type Server struct {
 	receivedPings int
 }
 
-func NewServer() (*Server, error) {
+func NewTestServer() (*TestServer, error) {
 	// automatically choose port
 	ln, err := net.Listen("tcp", "127.0.0.1:")
 	if err != nil {
 		return nil, err
 	}
 
-	s := &Server{
+	s := &TestServer{
 		ln:      ln,
 		Addr:    ln.Addr().String(),
 		closeCh: make(chan bool),
@@ -70,13 +71,13 @@ func NewServer() (*Server, error) {
 	return s, nil
 }
 
-func (s *Server) Close() {
+func (s *TestServer) Close() {
 	close(s.closeCh)
 	s.ln.Close()
 	s.wg.Wait()
 }
 
-func (s *Server) handleConnection(conn net.Conn) {
+func (s *TestServer) handleConnection(conn net.Conn) {
 	defer conn.Close()
 
 	// buf := make([]byte, 2048)
@@ -119,7 +120,7 @@ ReadLoop:
 	}
 }
 
-func (s *Server) handleMessage(conn net.Conn, packed []byte) {
+func (s *TestServer) handleMessage(conn net.Conn, packed []byte) {
 	message := iso8583.NewMessage(brandSpec)
 	err := message.Unpack(packed)
 	if err != nil {
@@ -163,7 +164,7 @@ func (s *Server) handleMessage(conn net.Conn, packed []byte) {
 	s.send(conn, message)
 }
 
-func (s *Server) send(conn net.Conn, message *iso8583.Message) {
+func (s *TestServer) send(conn net.Conn, message *iso8583.Message) {
 	var buf bytes.Buffer
 	packed, err := message.Pack()
 	if err != nil {
@@ -190,7 +191,7 @@ func (s *Server) send(conn net.Conn, message *iso8583.Message) {
 	}
 }
 
-func (s *Server) RecivedPings() int {
+func (s *TestServer) RecivedPings() int {
 	var pings int
 	s.mutex.Lock()
 	pings = s.receivedPings

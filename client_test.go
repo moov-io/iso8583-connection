@@ -10,7 +10,7 @@ import (
 )
 
 func TestClient_Connect(t *testing.T) {
-	server, err := NewServer()
+	server, err := NewTestServer()
 	require.NoError(t, err)
 	defer server.Close()
 
@@ -22,7 +22,7 @@ func TestClient_Connect(t *testing.T) {
 }
 
 func TestClient_Send(t *testing.T) {
-	server, err := NewServer()
+	server, err := NewTestServer()
 	require.NoError(t, err)
 	defer server.Close()
 
@@ -132,7 +132,7 @@ func TestClient_Send(t *testing.T) {
 
 	t.Run("automatically sends ping messages after ping interval", func(t *testing.T) {
 		// we create server instance here to isolate pings count
-		server, err := NewServer()
+		server, err := NewTestServer()
 		require.NoError(t, err)
 		defer server.Close()
 
