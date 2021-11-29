@@ -2,14 +2,17 @@ package main
 
 import (
 	"encoding/hex"
-	"fmt"
 	"os"
+	"testing"
 
 	"github.com/moov-io/iso8583"
 	"github.com/moov-io/iso8583/cmd/iso8583/describe"
+	"github.com/stretchr/testify/require"
 )
 
-func main() {
+func TestBrandMessageExamples(t *testing.T) {
+	t.Skip("WIP test to reverse engineer Brand messages")
+
 	var rawMessage []byte
 
 	rawMessage = append(rawMessage, []byte(`0100`)...)
@@ -37,7 +40,6 @@ func main() {
 	message.Unpack(rawMessage)
 
 	err = describe.Message(os.Stdout, message)
-	if err != nil {
-		panic(fmt.Sprintf("describing message: %w", err))
-	}
+
+	require.NoError(t, err)
 }
