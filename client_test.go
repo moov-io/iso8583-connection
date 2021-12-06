@@ -227,5 +227,55 @@ func TestClient_Send(t *testing.T) {
 
 		require.True(t, server.RecivedPings() > 0)
 	})
+}
 
+func BenchmarkSend100(b *testing.B) { benchmarkSend(100, b) }
+
+func BenchmarkSend1000(b *testing.B) { benchmarkSend(1000, b) }
+
+func BenchmarkSend10000(b *testing.B) { benchmarkSend(10000, b) }
+
+func BenchmarkSend100000(b *testing.B) { benchmarkSend(100000, b) }
+
+func benchmarkSend(m int, b *testing.B) {
+	// start server
+	// defer stop server
+	server, err := NewTestServer()
+	if err != nil {
+		b.Fatal("starting server: ", err)
+	}
+	defer server.Close()
+
+	for n := 0; n < b.N; n++ {
+		client := NewClient()
+		err = client.Connect(server.Addr)
+		if err != nil {
+			b.Fatal("connecting to the server: ", err)
+		}
+
+		// send m messages
+		var wg sync.WaitGroup
+		for i := 0; i < m; i++ {
+			wg.Add(1)
+			go func() {
+				defer func() {
+					wg.Done()
+				}()
+
+				message := iso8583.NewMessage(brandSpec)
+				message.MTI("0800")
+
+				_, err := client.Send(message)
+				if err != nil {
+					b.Fatal("sending message: ", err)
+				}
+			}()
+		}
+
+		wg.Wait()
+		err = client.Close()
+		if err != nil {
+			b.Fatal("closing client: ", err)
+		}
+	}
 }
