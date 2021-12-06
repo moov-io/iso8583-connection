@@ -238,44 +238,48 @@ func BenchmarkSend10000(b *testing.B) { benchmarkSend(10000, b) }
 func BenchmarkSend100000(b *testing.B) { benchmarkSend(100000, b) }
 
 func benchmarkSend(m int, b *testing.B) {
-	// start server
-	// defer stop server
 	server, err := NewTestServer()
 	if err != nil {
 		b.Fatal("starting server: ", err)
 	}
-	defer server.Close()
+
+	client := NewClient()
+	err = client.Connect(server.Addr)
+	if err != nil {
+		b.Fatal("connecting to the server: ", err)
+	}
+
+	b.ResetTimer()
 
 	for n := 0; n < b.N; n++ {
-		client := NewClient()
-		err = client.Connect(server.Addr)
-		if err != nil {
-			b.Fatal("connecting to the server: ", err)
-		}
-
-		// send m messages
-		var wg sync.WaitGroup
-		for i := 0; i < m; i++ {
-			wg.Add(1)
-			go func() {
-				defer func() {
-					wg.Done()
-				}()
-
-				message := iso8583.NewMessage(brandSpec)
-				message.MTI("0800")
-
-				_, err := client.Send(message)
-				if err != nil {
-					b.Fatal("sending message: ", err)
-				}
-			}()
-		}
-
-		wg.Wait()
-		err = client.Close()
-		if err != nil {
-			b.Fatal("closing client: ", err)
-		}
+		processMessages(b, m, client)
 	}
+
+	err = client.Close()
+	if err != nil {
+		b.Fatal("closing client: ", err)
+	}
+	server.Close()
+}
+
+// send/receive m messages
+func processMessages(b *testing.B, m int, client *Client) {
+	var wg sync.WaitGroup
+	for i := 0; i < m; i++ {
+		wg.Add(1)
+		go func() {
+			defer func() {
+				wg.Done()
+			}()
+
+			message := iso8583.NewMessage(brandSpec)
+			message.MTI("0800")
+
+			_, err := client.Send(message)
+			if err != nil {
+				b.Fatal("sending message: ", err)
+			}
+		}()
+	}
+	wg.Wait()
 }
