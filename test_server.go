@@ -80,7 +80,6 @@ func (s *TestServer) Close() {
 func (s *TestServer) handleConnection(conn net.Conn) {
 	defer conn.Close()
 
-	// buf := make([]byte, 2048)
 ReadLoop:
 	for {
 		select {

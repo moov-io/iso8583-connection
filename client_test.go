@@ -130,6 +130,81 @@ func TestClient_Send(t *testing.T) {
 		wg.Wait()
 	})
 
+	t.Run("responses received asynchronously", func(t *testing.T) {
+		client := NewClient()
+		err = client.Connect(server.Addr)
+		require.NoError(t, err)
+		defer client.Close()
+
+		// send first message and tell server to respond in 500ms
+		var (
+			receivedSTANs []string
+			wg            sync.WaitGroup
+			mu            sync.Mutex
+			stan1         string
+			stan2         string
+		)
+
+		wg.Add(1)
+		go func() {
+			defer func() {
+				wg.Done()
+			}()
+
+			message := iso8583.NewMessage(brandSpec)
+			message.MTI("0800")
+
+			// using 777 value for the field, we tell server
+			// to sleep for 500ms when process the message
+			require.NoError(t, message.Field(70, "777"))
+			response, err := client.Send(message)
+			require.NoError(t, err)
+
+			// put received STAN into slice so we can check the order
+			stan1, err = response.GetString(11)
+			require.NoError(t, err)
+			mu.Lock()
+			receivedSTANs = append(receivedSTANs, stan1)
+			mu.Unlock()
+		}()
+
+		wg.Add(1)
+		go func() {
+			defer func() {
+				wg.Done()
+			}()
+
+			// this message will be sent after the first one
+			time.Sleep(100 * time.Millisecond)
+
+			message := iso8583.NewMessage(brandSpec)
+			message.MTI("0800")
+
+			response, err := client.Send(message)
+			require.NoError(t, err)
+
+			// put received STAN into slice so we can check the order
+			stan2, err = response.GetString(11)
+			require.NoError(t, err)
+			mu.Lock()
+			receivedSTANs = append(receivedSTANs, stan2)
+			mu.Unlock()
+		}()
+
+		// let's wait all messages to be sent
+		time.Sleep(200 * time.Millisecond)
+
+		wg.Wait()
+		require.NoError(t, client.Close())
+
+		// we expect that response for the second message was received first
+		require.Equal(t, receivedSTANs[0], stan2)
+
+		// and that response for the first message was received second
+		require.Equal(t, receivedSTANs[1], stan1)
+
+	})
+
 	t.Run("automatically sends ping messages after ping interval", func(t *testing.T) {
 		// we create server instance here to isolate pings count
 		server, err := NewTestServer()
@@ -152,5 +227,59 @@ func TestClient_Send(t *testing.T) {
 
 		require.True(t, server.RecivedPings() > 0)
 	})
+}
 
+func BenchmarkSend100(b *testing.B) { benchmarkSend(100, b) }
+
+func BenchmarkSend1000(b *testing.B) { benchmarkSend(1000, b) }
+
+func BenchmarkSend10000(b *testing.B) { benchmarkSend(10000, b) }
+
+func BenchmarkSend100000(b *testing.B) { benchmarkSend(100000, b) }
+
+func benchmarkSend(m int, b *testing.B) {
+	server, err := NewTestServer()
+	if err != nil {
+		b.Fatal("starting server: ", err)
+	}
+
+	client := NewClient()
+	err = client.Connect(server.Addr)
+	if err != nil {
+		b.Fatal("connecting to the server: ", err)
+	}
+
+	b.ResetTimer()
+
+	for n := 0; n < b.N; n++ {
+		processMessages(b, m, client)
+	}
+
+	err = client.Close()
+	if err != nil {
+		b.Fatal("closing client: ", err)
+	}
+	server.Close()
+}
+
+// send/receive m messages
+func processMessages(b *testing.B, m int, client *Client) {
+	var wg sync.WaitGroup
+	for i := 0; i < m; i++ {
+		wg.Add(1)
+		go func() {
+			defer func() {
+				wg.Done()
+			}()
+
+			message := iso8583.NewMessage(brandSpec)
+			message.MTI("0800")
+
+			_, err := client.Send(message)
+			if err != nil {
+				b.Fatal("sending message: ", err)
+			}
+		}()
+	}
+	wg.Wait()
 }
