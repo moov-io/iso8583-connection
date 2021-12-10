@@ -1,4 +1,4 @@
-package main
+package client
 
 import (
 	"bufio"
@@ -39,6 +39,8 @@ func GetDefaultOptions() Options {
 	}
 }
 
+// Client represents an ISO 8583 Client. Client may be used
+// by multiple goroutines simultaneously.
 type Client struct {
 	opts       Options
 	conn       net.Conn
@@ -75,6 +77,7 @@ func NewClient(options ...Option) *Client {
 	}
 }
 
+// Connect connects to the server
 func (c *Client) Connect(addr string) error {
 	conn, err := net.Dial("tcp", addr)
 	if err != nil {
@@ -88,6 +91,8 @@ func (c *Client) Connect(addr string) error {
 	return nil
 }
 
+// Close waits for pending requests to complete and then closes network
+// connection with ISO 8583 server
 func (c *Client) Close() error {
 	c.mutex.Lock()
 	// if we are closing already, just return
@@ -106,6 +111,7 @@ func (c *Client) Close() error {
 	return c.conn.Close()
 }
 
+// request represents request to the ISO 8583 server
 type request struct {
 	// includes length header and message itself
 	rawMessage []byte
@@ -181,6 +187,11 @@ func (c *Client) Send(message *iso8583.Message) (*iso8583.Message, error) {
 	case resp = <-req.replyCh:
 	case err = <-req.errCh:
 	case <-time.After(c.opts.SendTimeout):
+		// remove reply channel, so readLoop will never write into it
+		// c.pendingRequestsMu.Lock()
+		// delete(c.respMap, req.requestID)
+		// c.pendingRequestsMu.Unlock()
+
 		err = ErrSendTimeout
 	}
 
@@ -222,6 +233,8 @@ func requestID(message *iso8583.Message) (string, error) {
 	return stan, nil
 }
 
+// writeLoop reads requests from the channel and writes request message into
+// the socket connection. It also sends message when idle time passes
 func (c *Client) writeLoop() {
 	for {
 		select {
@@ -249,7 +262,7 @@ func (c *Client) writeLoop() {
 }
 
 func (c *Client) sendPingMessage() {
-	pingMessage := iso8583.NewMessage(brandSpec)
+	pingMessage := iso8583.NewMessage(BrandSpec)
 	pingMessage.MTI("0800")
 	pingMessage.Field(70, "371")
 
@@ -270,6 +283,8 @@ func (c *Client) sendPingMessage() {
 	}
 }
 
+// readLoop reads data from the socket (message length header and raw message)
+// and runs a goroutine to handle the message
 func (c *Client) readLoop() {
 	var err error
 
@@ -303,9 +318,11 @@ func (c *Client) readLoop() {
 
 }
 
+// handleResponse unpacks the message and then sends it to the reply channel
+// that corresponds to the message ID (request ID)
 func (c *Client) handleResponse(rawMessage []byte) {
 	// create message
-	message := iso8583.NewMessage(brandSpec)
+	message := iso8583.NewMessage(BrandSpec)
 	err := message.Unpack(rawMessage)
 	if err != nil {
 		log.Printf("unpacking message: %v", err)
