@@ -1,4 +1,4 @@
-package main
+package client
 
 import (
 	"bufio"
@@ -262,7 +262,7 @@ func (c *Client) writeLoop() {
 }
 
 func (c *Client) sendPingMessage() {
-	pingMessage := iso8583.NewMessage(brandSpec)
+	pingMessage := iso8583.NewMessage(BrandSpec)
 	pingMessage.MTI("0800")
 	pingMessage.Field(70, "371")
 
@@ -322,7 +322,7 @@ func (c *Client) readLoop() {
 // that corresponds to the message ID (request ID)
 func (c *Client) handleResponse(rawMessage []byte) {
 	// create message
-	message := iso8583.NewMessage(brandSpec)
+	message := iso8583.NewMessage(BrandSpec)
 	err := message.Unpack(rawMessage)
 	if err != nil {
 		log.Printf("unpacking message: %v", err)

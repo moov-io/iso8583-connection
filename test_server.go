@@ -1,4 +1,4 @@
-package main
+package client
 
 import (
 	"bytes"
@@ -120,7 +120,7 @@ ReadLoop:
 }
 
 func (s *TestServer) handleMessage(conn net.Conn, packed []byte) {
-	message := iso8583.NewMessage(brandSpec)
+	message := iso8583.NewMessage(BrandSpec)
 	err := message.Unpack(packed)
 	if err != nil {
 		log.Printf("unpacking message: %v", err)

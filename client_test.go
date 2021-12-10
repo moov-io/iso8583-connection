@@ -1,4 +1,4 @@
-package main
+package client_test
 
 import (
 	"sync"
@@ -6,38 +6,39 @@ import (
 	"time"
 
 	"github.com/moov-io/iso8583"
+	client "github.com/moovfinancial/iso8583-client"
 	"github.com/stretchr/testify/require"
 )
 
 func TestClient_Connect(t *testing.T) {
-	server, err := NewTestServer()
+	server, err := client.NewTestServer()
 	require.NoError(t, err)
 	defer server.Close()
 
 	// our client can connect to the server
-	client := NewClient()
-	err = client.Connect(server.Addr)
+	c := client.NewClient()
+	err = c.Connect(server.Addr)
 	require.NoError(t, err)
-	require.NoError(t, client.Close())
+	require.NoError(t, c.Close())
 }
 
 func TestClient_Send(t *testing.T) {
-	server, err := NewTestServer()
+	server, err := client.NewTestServer()
 	require.NoError(t, err)
 	defer server.Close()
 
 	t.Run("sends messages to server and receives responses", func(t *testing.T) {
-		client := NewClient()
-		err = client.Connect(server.Addr)
+		c := client.NewClient()
+		err = c.Connect(server.Addr)
 		require.NoError(t, err)
 
 		// network management message
-		message := iso8583.NewMessage(brandSpec)
+		message := iso8583.NewMessage(client.BrandSpec)
 		message.MTI("0800")
 		message.Field(70, "777")
 
 		// we can send iso message to the server
-		response, err := client.Send(message)
+		response, err := c.Send(message)
 		require.NoError(t, err)
 		time.Sleep(1 * time.Second)
 
@@ -45,57 +46,57 @@ func TestClient_Send(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "0810", mti)
 
-		require.NoError(t, client.Close())
+		require.NoError(t, c.Close())
 	})
 
 	t.Run("it returns ErrConnectionClosed when Close was called", func(t *testing.T) {
-		client := NewClient()
-		err = client.Connect(server.Addr)
+		c := client.NewClient()
+		err = c.Connect(server.Addr)
 		require.NoError(t, err)
 
 		// network management message
-		message := iso8583.NewMessage(brandSpec)
+		message := iso8583.NewMessage(client.BrandSpec)
 		message.MTI("0800")
 		message.Field(70, "777")
 
-		require.NoError(t, client.Close())
+		require.NoError(t, c.Close())
 
-		_, err = client.Send(message)
-		require.Equal(t, ErrConnectionClosed, err)
+		_, err = c.Send(message)
+		require.Equal(t, client.ErrConnectionClosed, err)
 	})
 
 	t.Run("it returns ErrSendTimeout when response was not received during SendTimeout time", func(t *testing.T) {
-		client := NewClient(func(opts *Options) {
+		c := client.NewClient(func(opts *client.Options) {
 			opts.SendTimeout = 100 * time.Millisecond
 		})
-		err = client.Connect(server.Addr)
+		err = c.Connect(server.Addr)
 		require.NoError(t, err)
-		defer client.Close()
+		defer c.Close()
 
 		// regular network management message
-		message := iso8583.NewMessage(brandSpec)
+		message := iso8583.NewMessage(client.BrandSpec)
 		message.MTI("0800")
 
-		_, err := client.Send(message)
+		_, err := c.Send(message)
 		require.NoError(t, err)
 
 		// network management message to test timeout
-		message = iso8583.NewMessage(brandSpec)
+		message = iso8583.NewMessage(client.BrandSpec)
 		message.MTI("0800")
 
 		// using 777 value for the field, we tell server
 		// to sleep for 500ms when process the message
 		require.NoError(t, message.Field(70, "777"))
 
-		_, err = client.Send(message)
-		require.Equal(t, ErrSendTimeout, err)
+		_, err = c.Send(message)
+		require.Equal(t, client.ErrSendTimeout, err)
 	})
 
 	t.Run("pending requests should complete after Close was called", func(t *testing.T) {
-		client := NewClient()
-		err = client.Connect(server.Addr)
+		c := client.NewClient()
+		err = c.Connect(server.Addr)
 		require.NoError(t, err)
-		defer client.Close()
+		defer c.Close()
 
 		var wg sync.WaitGroup
 		for i := 0; i < 10; i++ {
@@ -106,14 +107,14 @@ func TestClient_Send(t *testing.T) {
 				}()
 
 				// network management message
-				message := iso8583.NewMessage(brandSpec)
+				message := iso8583.NewMessage(client.BrandSpec)
 				message.MTI("0800")
 
 				// using 777 value for the field, we tell server
 				// to sleep for 500ms when process the message
 				require.NoError(t, message.Field(70, "777"))
 
-				response, err := client.Send(message)
+				response, err := c.Send(message)
 				require.NoError(t, err)
 
 				mti, err := response.GetMTI()
@@ -126,15 +127,15 @@ func TestClient_Send(t *testing.T) {
 		time.Sleep(200 * time.Millisecond)
 
 		// while server is waiting, we will close the connection
-		require.NoError(t, client.Close())
+		require.NoError(t, c.Close())
 		wg.Wait()
 	})
 
 	t.Run("responses received asynchronously", func(t *testing.T) {
-		client := NewClient()
-		err = client.Connect(server.Addr)
+		c := client.NewClient()
+		err = c.Connect(server.Addr)
 		require.NoError(t, err)
-		defer client.Close()
+		defer c.Close()
 
 		// send first message and tell server to respond in 500ms
 		var (
@@ -151,13 +152,13 @@ func TestClient_Send(t *testing.T) {
 				wg.Done()
 			}()
 
-			message := iso8583.NewMessage(brandSpec)
+			message := iso8583.NewMessage(client.BrandSpec)
 			message.MTI("0800")
 
 			// using 777 value for the field, we tell server
 			// to sleep for 500ms when process the message
 			require.NoError(t, message.Field(70, "777"))
-			response, err := client.Send(message)
+			response, err := c.Send(message)
 			require.NoError(t, err)
 
 			// put received STAN into slice so we can check the order
@@ -177,10 +178,10 @@ func TestClient_Send(t *testing.T) {
 			// this message will be sent after the first one
 			time.Sleep(100 * time.Millisecond)
 
-			message := iso8583.NewMessage(brandSpec)
+			message := iso8583.NewMessage(client.BrandSpec)
 			message.MTI("0800")
 
-			response, err := client.Send(message)
+			response, err := c.Send(message)
 			require.NoError(t, err)
 
 			// put received STAN into slice so we can check the order
@@ -195,7 +196,7 @@ func TestClient_Send(t *testing.T) {
 		time.Sleep(200 * time.Millisecond)
 
 		wg.Wait()
-		require.NoError(t, client.Close())
+		require.NoError(t, c.Close())
 
 		// we expect that response for the second message was received first
 		require.Equal(t, receivedSTANs[0], stan2)
@@ -207,17 +208,17 @@ func TestClient_Send(t *testing.T) {
 
 	t.Run("automatically sends ping messages after ping interval", func(t *testing.T) {
 		// we create server instance here to isolate pings count
-		server, err := NewTestServer()
+		server, err := client.NewTestServer()
 		require.NoError(t, err)
 		defer server.Close()
 
-		client := NewClient(func(opts *Options) {
+		c := client.NewClient(func(opts *client.Options) {
 			opts.IdleTime = 50 * time.Millisecond
 		})
 
-		err = client.Connect(server.Addr)
+		err = c.Connect(server.Addr)
 		require.NoError(t, err)
-		defer client.Close()
+		defer c.Close()
 
 		// we expect that ping interval in 50ms has not passed yet
 		// and server has not being pinged
@@ -226,6 +227,30 @@ func TestClient_Send(t *testing.T) {
 		time.Sleep(200 * time.Millisecond)
 
 		require.True(t, server.RecivedPings() > 0)
+	})
+
+	t.Run("it handles unrecognized responses", func(t *testing.T) {
+		c := client.NewClient(func(opts *client.Options) {
+			opts.SendTimeout = 100 * time.Millisecond
+		})
+		err = c.Connect(server.Addr)
+		require.NoError(t, err)
+		defer c.Close()
+
+		// network management message to test timeout
+		message := iso8583.NewMessage(client.BrandSpec)
+		message.MTI("0800")
+
+		// using 777 value for the field, we tell server
+		// to sleep for 500ms when process the message
+		require.NoError(t, message.Field(70, "777"))
+
+		_, err = c.Send(message)
+		require.Equal(t, client.ErrSendTimeout, err)
+
+		// let's sleep here to wait for the server response to our message
+		// we should not panic :)
+		time.Sleep(1 * time.Second)
 	})
 }
 
@@ -238,13 +263,13 @@ func BenchmarkSend10000(b *testing.B) { benchmarkSend(10000, b) }
 func BenchmarkSend100000(b *testing.B) { benchmarkSend(100000, b) }
 
 func benchmarkSend(m int, b *testing.B) {
-	server, err := NewTestServer()
+	server, err := client.NewTestServer()
 	if err != nil {
 		b.Fatal("starting server: ", err)
 	}
 
-	client := NewClient()
-	err = client.Connect(server.Addr)
+	c := client.NewClient()
+	err = c.Connect(server.Addr)
 	if err != nil {
 		b.Fatal("connecting to the server: ", err)
 	}
@@ -252,10 +277,10 @@ func benchmarkSend(m int, b *testing.B) {
 	b.ResetTimer()
 
 	for n := 0; n < b.N; n++ {
-		processMessages(b, m, client)
+		processMessages(b, m, c)
 	}
 
-	err = client.Close()
+	err = c.Close()
 	if err != nil {
 		b.Fatal("closing client: ", err)
 	}
@@ -263,7 +288,7 @@ func benchmarkSend(m int, b *testing.B) {
 }
 
 // send/receive m messages
-func processMessages(b *testing.B, m int, client *Client) {
+func processMessages(b *testing.B, m int, c *client.Client) {
 	var wg sync.WaitGroup
 	for i := 0; i < m; i++ {
 		wg.Add(1)
@@ -272,10 +297,10 @@ func processMessages(b *testing.B, m int, client *Client) {
 				wg.Done()
 			}()
 
-			message := iso8583.NewMessage(brandSpec)
+			message := iso8583.NewMessage(client.BrandSpec)
 			message.MTI("0800")
 
-			_, err := client.Send(message)
+			_, err := c.Send(message)
 			if err != nil {
 				b.Fatal("sending message: ", err)
 			}
