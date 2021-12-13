@@ -1,14 +1,39 @@
 package client_test
 
 import (
+	"fmt"
+	"io"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/moov-io/iso8583"
+	"github.com/moov-io/iso8583/network"
 	client "github.com/moovfinancial/iso8583-client"
 	"github.com/stretchr/testify/require"
 )
+
+func ReadMessageLength(r io.Reader) (int, error) {
+	header := network.NewVMLHeader()
+	n, err := header.ReadFrom(r)
+	if err != nil {
+		return n, err
+	}
+
+	return header.Length(), nil
+}
+
+func WriteMessageLength(w io.Writer, length int) (int, error) {
+	header := network.NewVMLHeader()
+	header.SetLength(length)
+
+	n, err := header.WriteTo(w)
+	if err != nil {
+		return n, fmt.Errorf("writing message header: %v", err)
+	}
+
+	return n, nil
+}
 
 func TestClient_Connect(t *testing.T) {
 	server, err := client.NewTestServer()
@@ -16,11 +41,14 @@ func TestClient_Connect(t *testing.T) {
 	defer server.Close()
 
 	// our client can connect to the server
-	c := client.NewClient()
+	c := client.NewClient(client.BrandSpec, ReadMessageLength, WriteMessageLength)
 	err = c.Connect(server.Addr)
 	require.NoError(t, err)
 	require.NoError(t, c.Close())
 }
+
+// func TestClient_XXX(t *testing.T) {
+// }
 
 func TestClient_Send(t *testing.T) {
 	server, err := client.NewTestServer()
@@ -28,7 +56,7 @@ func TestClient_Send(t *testing.T) {
 	defer server.Close()
 
 	t.Run("sends messages to server and receives responses", func(t *testing.T) {
-		c := client.NewClient()
+		c := client.NewClient(client.BrandSpec, ReadMessageLength, WriteMessageLength)
 		err = c.Connect(server.Addr)
 		require.NoError(t, err)
 
@@ -50,7 +78,7 @@ func TestClient_Send(t *testing.T) {
 	})
 
 	t.Run("it returns ErrConnectionClosed when Close was called", func(t *testing.T) {
-		c := client.NewClient()
+		c := client.NewClient(client.BrandSpec, ReadMessageLength, WriteMessageLength)
 		err = c.Connect(server.Addr)
 		require.NoError(t, err)
 
@@ -66,7 +94,8 @@ func TestClient_Send(t *testing.T) {
 	})
 
 	t.Run("it returns ErrSendTimeout when response was not received during SendTimeout time", func(t *testing.T) {
-		c := client.NewClient(func(opts *client.Options) {
+
+		c := client.NewClient(client.BrandSpec, ReadMessageLength, WriteMessageLength, func(opts *client.Options) {
 			opts.SendTimeout = 100 * time.Millisecond
 		})
 		err = c.Connect(server.Addr)
@@ -93,7 +122,7 @@ func TestClient_Send(t *testing.T) {
 	})
 
 	t.Run("pending requests should complete after Close was called", func(t *testing.T) {
-		c := client.NewClient()
+		c := client.NewClient(client.BrandSpec, ReadMessageLength, WriteMessageLength)
 		err = c.Connect(server.Addr)
 		require.NoError(t, err)
 		defer c.Close()
@@ -132,7 +161,7 @@ func TestClient_Send(t *testing.T) {
 	})
 
 	t.Run("responses received asynchronously", func(t *testing.T) {
-		c := client.NewClient()
+		c := client.NewClient(client.BrandSpec, ReadMessageLength, WriteMessageLength)
 		err = c.Connect(server.Addr)
 		require.NoError(t, err)
 		defer c.Close()
@@ -212,7 +241,7 @@ func TestClient_Send(t *testing.T) {
 		require.NoError(t, err)
 		defer server.Close()
 
-		c := client.NewClient(func(opts *client.Options) {
+		c := client.NewClient(client.BrandSpec, ReadMessageLength, WriteMessageLength, func(opts *client.Options) {
 			opts.IdleTime = 50 * time.Millisecond
 		})
 
@@ -230,7 +259,7 @@ func TestClient_Send(t *testing.T) {
 	})
 
 	t.Run("it handles unrecognized responses", func(t *testing.T) {
-		c := client.NewClient(func(opts *client.Options) {
+		c := client.NewClient(client.BrandSpec, ReadMessageLength, WriteMessageLength, func(opts *client.Options) {
 			opts.SendTimeout = 100 * time.Millisecond
 		})
 		err = c.Connect(server.Addr)
@@ -268,7 +297,7 @@ func benchmarkSend(m int, b *testing.B) {
 		b.Fatal("starting server: ", err)
 	}
 
-	c := client.NewClient()
+	c := client.NewClient(client.BrandSpec, ReadMessageLength, WriteMessageLength)
 	err = c.Connect(server.Addr)
 	if err != nil {
 		b.Fatal("connecting to the server: ", err)
