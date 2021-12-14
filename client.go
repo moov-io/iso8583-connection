@@ -336,7 +336,7 @@ func (c *Client) readLoop() {
 // that corresponds to the message ID (request ID)
 func (c *Client) handleResponse(rawMessage []byte) {
 	// create message
-	message := iso8583.NewMessage(BrandSpec)
+	message := iso8583.NewMessage(c.spec)
 	err := message.Unpack(rawMessage)
 	if err != nil {
 		log.Printf("unpacking message: %v", err)
