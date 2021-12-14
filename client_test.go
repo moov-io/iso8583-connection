@@ -73,10 +73,7 @@ func TestClient_Send(t *testing.T) {
 	})
 
 	t.Run("it returns ErrSendTimeout when response was not received during SendTimeout time", func(t *testing.T) {
-
-		c := client.NewClient(testSpec, readMessageLength, writeMessageLength, func(opts *client.Options) {
-			opts.SendTimeout = 100 * time.Millisecond
-		})
+		c := client.NewClient(testSpec, readMessageLength, writeMessageLength, client.SendTimeout(100*time.Millisecond))
 		err = c.Connect(server.Addr)
 		require.NoError(t, err)
 		defer c.Close()
@@ -215,16 +212,28 @@ func TestClient_Send(t *testing.T) {
 	})
 
 	t.Run("automatically sends ping messages after ping interval", func(t *testing.T) {
-		t.Skip("ping will be implemented as callback")
-
 		// we create server instance here to isolate pings count
 		server, err := test.NewServer(testSpec, readMessageLength, writeMessageLength)
 		require.NoError(t, err)
 		defer server.Close()
 
-		c := client.NewClient(testSpec, readMessageLength, writeMessageLength, func(opts *client.Options) {
-			opts.IdleTime = 50 * time.Millisecond
-		})
+		pingHandler := func(c *client.Client) {
+			pingMessage := iso8583.NewMessage(testSpec)
+			pingMessage.MTI("0800")
+			pingMessage.Field(2, test.CardForPingCounter)
+
+			response, err := c.Send(pingMessage)
+			require.NoError(t, err)
+
+			mti, err := response.GetMTI()
+			require.NoError(t, err)
+			require.Equal(t, "0810", mti)
+		}
+
+		c := client.NewClient(testSpec, readMessageLength, writeMessageLength,
+			client.IdleTime(50*time.Millisecond),
+			client.PingHandler(pingHandler),
+		)
 
 		err = c.Connect(server.Addr)
 		require.NoError(t, err)
@@ -240,9 +249,7 @@ func TestClient_Send(t *testing.T) {
 	})
 
 	t.Run("it handles unrecognized responses", func(t *testing.T) {
-		c := client.NewClient(testSpec, readMessageLength, writeMessageLength, func(opts *client.Options) {
-			opts.SendTimeout = 100 * time.Millisecond
-		})
+		c := client.NewClient(testSpec, readMessageLength, writeMessageLength, client.SendTimeout(100*time.Millisecond))
 		err = c.Connect(server.Addr)
 		require.NoError(t, err)
 		defer c.Close()
