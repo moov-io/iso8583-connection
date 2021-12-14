@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/moov-io/iso8583"
-	"github.com/moov-io/iso8583/network"
 )
 
 var (
@@ -39,6 +38,12 @@ func GetDefaultOptions() Options {
 	}
 }
 
+// messageLengthReader reads message header from the r and returns message length
+type messageLengthReader func(r io.Reader) (int, error)
+
+// messageLengthWriter writes message header with encoded length into w
+type messageLengthWriter func(w io.Writer, length int) (int, error)
+
 // Client represents an ISO 8583 Client. Client may be used
 // by multiple goroutines simultaneously.
 type Client struct {
@@ -46,6 +51,17 @@ type Client struct {
 	conn       net.Conn
 	requestsCh chan request
 	done       chan struct{}
+
+	// spec that will be used to unpack received messages
+	spec *iso8583.MessageSpec
+
+	// readMessageLength is the function that reads message length header
+	// from the connection, decodes and returns message length
+	readMessageLength messageLengthReader
+
+	// writeMessageLength is the function that encodes message length and
+	// writes message length header into the connection
+	writeMessageLength messageLengthWriter
 
 	pendingRequestsMu sync.Mutex
 	respMap           map[string]chan *iso8583.Message
@@ -63,17 +79,20 @@ type Client struct {
 	stan int32
 }
 
-func NewClient(options ...Option) *Client {
+func NewClient(spec *iso8583.MessageSpec, mlReader messageLengthReader, mlWriter messageLengthWriter, options ...Option) *Client {
 	opts := GetDefaultOptions()
 	for _, opt := range options {
 		opt(&opts)
 	}
 
 	return &Client{
-		opts:       opts,
-		requestsCh: make(chan request),
-		done:       make(chan struct{}),
-		respMap:    make(map[string]chan *iso8583.Message),
+		opts:               opts,
+		requestsCh:         make(chan request),
+		done:               make(chan struct{}),
+		respMap:            make(map[string]chan *iso8583.Message),
+		spec:               spec,
+		readMessageLength:  mlReader,
+		writeMessageLength: mlWriter,
 	}
 }
 
@@ -153,12 +172,9 @@ func (c *Client) Send(message *iso8583.Message) (*iso8583.Message, error) {
 	}
 
 	// create header
-	header := network.NewVMLHeader()
-	header.SetLength(len(packed))
-
-	_, err = header.WriteTo(&buf)
+	_, err = c.writeMessageLength(&buf, len(packed))
 	if err != nil {
-		return nil, fmt.Errorf("writing message header: %v", err)
+		return nil, fmt.Errorf("writing message header to buffer: %v", err)
 	}
 
 	_, err = buf.Write(packed)
@@ -262,7 +278,7 @@ func (c *Client) writeLoop() {
 }
 
 func (c *Client) sendPingMessage() {
-	pingMessage := iso8583.NewMessage(BrandSpec)
+	pingMessage := iso8583.NewMessage(c.spec)
 	pingMessage.MTI("0800")
 	pingMessage.Field(70, "371")
 
@@ -287,25 +303,23 @@ func (c *Client) sendPingMessage() {
 // and runs a goroutine to handle the message
 func (c *Client) readLoop() {
 	var err error
+	var messageLength int
 
 	r := bufio.NewReader(c.conn)
 	for {
-		// read header first
-		header := network.NewVMLHeader()
-		_, err := header.ReadFrom(r)
+		messageLength, err = c.readMessageLength(r)
 		if err != nil {
 			break
 		}
 
 		// read the packed message
-		rawMessage := make([]byte, header.Length())
+		rawMessage := make([]byte, messageLength)
 		_, err = io.ReadFull(r, rawMessage)
 		if err != nil {
 			break
 		}
 
 		go c.handleResponse(rawMessage)
-
 	}
 
 	// lock to check `closing`
@@ -322,7 +336,7 @@ func (c *Client) readLoop() {
 // that corresponds to the message ID (request ID)
 func (c *Client) handleResponse(rawMessage []byte) {
 	// create message
-	message := iso8583.NewMessage(BrandSpec)
+	message := iso8583.NewMessage(c.spec)
 	err := message.Unpack(rawMessage)
 	if err != nil {
 		log.Printf("unpacking message: %v", err)
