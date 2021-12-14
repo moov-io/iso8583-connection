@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/moov-io/iso8583"
-	"github.com/moov-io/iso8583/network"
 )
 
 // TestServer is a sandbox server for iso8583. Actually, it dreams to be a real sanbox.
@@ -26,9 +25,20 @@ type TestServer struct {
 	mutex sync.Mutex
 
 	receivedPings int
+
+	// spec that will be used to unpack received messages
+	spec *iso8583.MessageSpec
+
+	// readMessageLength is the function that reads message length header
+	// from the connection, decodes and returns message length
+	readMessageLength messageLengthReader
+
+	// writeMessageLength is the function that encodes message length and
+	// writes message length header into the connection
+	writeMessageLength messageLengthWriter
 }
 
-func NewTestServer() (*TestServer, error) {
+func NewTestServer(spec *iso8583.MessageSpec, mlReader messageLengthReader, mlWriter messageLengthWriter) (*TestServer, error) {
 	// automatically choose port
 	ln, err := net.Listen("tcp", "127.0.0.1:")
 	if err != nil {
@@ -36,9 +46,12 @@ func NewTestServer() (*TestServer, error) {
 	}
 
 	s := &TestServer{
-		ln:      ln,
-		Addr:    ln.Addr().String(),
-		closeCh: make(chan bool),
+		ln:                 ln,
+		Addr:               ln.Addr().String(),
+		closeCh:            make(chan bool),
+		spec:               spec,
+		readMessageLength:  mlReader,
+		writeMessageLength: mlWriter,
 	}
 
 	s.wg.Add(1)
@@ -92,8 +105,7 @@ ReadLoop:
 			// https://eli.thegreenplace.net/2020/graceful-shutdown-of-a-tcp-server-in-go/
 			conn.SetDeadline(time.Now().Add(200 * time.Millisecond))
 
-			header := network.NewVMLHeader()
-			n, err := header.ReadFrom(conn)
+			messageLength, err := s.readMessageLength(conn)
 			if err != nil {
 				var e *net.OpError
 				if errors.As(err, &e) && e.Timeout() {
@@ -103,11 +115,11 @@ ReadLoop:
 					return
 				}
 			}
-			if n == 0 {
+			if messageLength == 0 {
 				return
 			}
 
-			packed := make([]byte, header.Length())
+			packed := make([]byte, messageLength)
 			_, err = conn.Read(packed)
 			if err != nil {
 				log.Printf("reading message: %v\n", err)
@@ -120,7 +132,7 @@ ReadLoop:
 }
 
 func (s *TestServer) handleMessage(conn net.Conn, packed []byte) {
-	message := iso8583.NewMessage(BrandSpec)
+	message := iso8583.NewMessage(s.spec)
 	err := message.Unpack(packed)
 	if err != nil {
 		log.Printf("unpacking message: %v", err)
@@ -171,10 +183,7 @@ func (s *TestServer) send(conn net.Conn, message *iso8583.Message) {
 	}
 
 	// create header
-	header := network.NewVMLHeader()
-	header.SetLength(len(packed))
-
-	_, err = header.WriteTo(&buf)
+	_, err = s.writeMessageLength(&buf, len(packed))
 	if err != nil {
 		log.Printf("writing message header: %v", err)
 	}

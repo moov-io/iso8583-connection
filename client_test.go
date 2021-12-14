@@ -36,7 +36,7 @@ func WriteMessageLength(w io.Writer, length int) (int, error) {
 }
 
 func TestClient_Connect(t *testing.T) {
-	server, err := client.NewTestServer()
+	server, err := client.NewTestServer(client.BrandSpec, ReadMessageLength, WriteMessageLength)
 	require.NoError(t, err)
 	defer server.Close()
 
@@ -51,7 +51,7 @@ func TestClient_Connect(t *testing.T) {
 // }
 
 func TestClient_Send(t *testing.T) {
-	server, err := client.NewTestServer()
+	server, err := client.NewTestServer(client.BrandSpec, ReadMessageLength, WriteMessageLength)
 	require.NoError(t, err)
 	defer server.Close()
 
@@ -237,7 +237,7 @@ func TestClient_Send(t *testing.T) {
 
 	t.Run("automatically sends ping messages after ping interval", func(t *testing.T) {
 		// we create server instance here to isolate pings count
-		server, err := client.NewTestServer()
+		server, err := client.NewTestServer(client.BrandSpec, ReadMessageLength, WriteMessageLength)
 		require.NoError(t, err)
 		defer server.Close()
 
@@ -292,7 +292,7 @@ func BenchmarkSend10000(b *testing.B) { benchmarkSend(10000, b) }
 func BenchmarkSend100000(b *testing.B) { benchmarkSend(100000, b) }
 
 func benchmarkSend(m int, b *testing.B) {
-	server, err := client.NewTestServer()
+	server, err := client.NewTestServer(client.BrandSpec, ReadMessageLength, WriteMessageLength)
 	if err != nil {
 		b.Fatal("starting server: ", err)
 	}
