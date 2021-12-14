@@ -1,4 +1,4 @@
-package client
+package test
 
 import (
 	"bytes"
@@ -13,8 +13,19 @@ import (
 	"github.com/moov-io/iso8583"
 )
 
-// TestServer is a sandbox server for iso8583. Actually, it dreams to be a real sanbox.
-type TestServer struct {
+const (
+	CardForDelayedResponse string = "4200000000000000"
+	CardForPingCounter     string = "4005550000000019"
+)
+
+// messageLengthReader reads message header from the r and returns message length
+type messageLengthReader func(r io.Reader) (int, error)
+
+// messageLengthWriter writes message header with encoded length into w
+type messageLengthWriter func(w io.Writer, length int) (int, error)
+
+// Server is a sandbox server for iso8583. Actually, it dreams to be a real sanbox.
+type Server struct {
 	ln   net.Listener
 	Addr string
 	wg   sync.WaitGroup
@@ -38,14 +49,14 @@ type TestServer struct {
 	writeMessageLength messageLengthWriter
 }
 
-func NewTestServer(spec *iso8583.MessageSpec, mlReader messageLengthReader, mlWriter messageLengthWriter) (*TestServer, error) {
+func NewServer(spec *iso8583.MessageSpec, mlReader messageLengthReader, mlWriter messageLengthWriter) (*Server, error) {
 	// automatically choose port
 	ln, err := net.Listen("tcp", "127.0.0.1:")
 	if err != nil {
 		return nil, err
 	}
 
-	s := &TestServer{
+	s := &Server{
 		ln:                 ln,
 		Addr:               ln.Addr().String(),
 		closeCh:            make(chan bool),
@@ -84,13 +95,13 @@ func NewTestServer(spec *iso8583.MessageSpec, mlReader messageLengthReader, mlWr
 	return s, nil
 }
 
-func (s *TestServer) Close() {
+func (s *Server) Close() {
 	close(s.closeCh)
 	s.ln.Close()
 	s.wg.Wait()
 }
 
-func (s *TestServer) handleConnection(conn net.Conn) {
+func (s *Server) handleConnection(conn net.Conn) {
 	defer conn.Close()
 
 ReadLoop:
@@ -131,7 +142,7 @@ ReadLoop:
 	}
 }
 
-func (s *TestServer) handleMessage(conn net.Conn, packed []byte) {
+func (s *Server) handleMessage(conn net.Conn, packed []byte) {
 	message := iso8583.NewMessage(s.spec)
 	err := message.Unpack(packed)
 	if err != nil {
@@ -151,20 +162,20 @@ func (s *TestServer) handleMessage(conn net.Conn, packed []byte) {
 
 	// check if network management information code
 	// was set to specific test case value
-	f70 := message.GetField(70)
-	if f70 != nil {
-		code, err := f70.String()
+	f2 := message.GetField(2)
+	if f2 != nil {
+		code, err := f2.String()
 		if err != nil {
-			log.Printf("getting field 70: %v", err)
+			log.Printf("getting field 2: %v", err)
 			return
 		}
 
 		switch code {
-		case "777":
+		case CardForDelayedResponse:
 			// testing value to "sleep" for a 3 seconds
 			time.Sleep(500 * time.Millisecond)
 
-		case "371":
+		case CardForPingCounter:
 			// ping request received
 			s.mutex.Lock()
 			s.receivedPings++
@@ -175,7 +186,7 @@ func (s *TestServer) handleMessage(conn net.Conn, packed []byte) {
 	s.send(conn, message)
 }
 
-func (s *TestServer) send(conn net.Conn, message *iso8583.Message) {
+func (s *Server) send(conn net.Conn, message *iso8583.Message) {
 	var buf bytes.Buffer
 	packed, err := message.Pack()
 	if err != nil {
@@ -199,7 +210,7 @@ func (s *TestServer) send(conn net.Conn, message *iso8583.Message) {
 	}
 }
 
-func (s *TestServer) RecivedPings() int {
+func (s *Server) RecivedPings() int {
 	var pings int
 	s.mutex.Lock()
 	pings = s.receivedPings
