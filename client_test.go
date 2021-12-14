@@ -17,47 +17,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func ReadMessageLength(r io.Reader) (int, error) {
-	header := network.NewBinary2BytesHeader()
-	n, err := header.ReadFrom(r)
-	if err != nil {
-		return n, err
-	}
-
-	return header.Length(), nil
-}
-
-func WriteMessageLength(w io.Writer, length int) (int, error) {
-	header := network.NewBinary2BytesHeader()
-	header.SetLength(length)
-
-	n, err := header.WriteTo(w)
-	if err != nil {
-		return n, fmt.Errorf("writing message header: %v", err)
-	}
-
-	return n, nil
-}
-
 func TestClient_Connect(t *testing.T) {
-	server, err := test.NewServer(testSpec, ReadMessageLength, WriteMessageLength)
+	server, err := test.NewServer(testSpec, readMessageLength, writeMessageLength)
 	require.NoError(t, err)
 	defer server.Close()
 
 	// our client can connect to the server
-	c := client.NewClient(testSpec, ReadMessageLength, WriteMessageLength)
+	c := client.NewClient(testSpec, readMessageLength, writeMessageLength)
 	err = c.Connect(server.Addr)
 	require.NoError(t, err)
 	require.NoError(t, c.Close())
 }
 
 func TestClient_Send(t *testing.T) {
-	server, err := test.NewServer(testSpec, ReadMessageLength, WriteMessageLength)
+	server, err := test.NewServer(testSpec, readMessageLength, writeMessageLength)
 	require.NoError(t, err)
 	defer server.Close()
 
 	t.Run("sends messages to server and receives responses", func(t *testing.T) {
-		c := client.NewClient(testSpec, ReadMessageLength, WriteMessageLength)
+		c := client.NewClient(testSpec, readMessageLength, writeMessageLength)
 		err = c.Connect(server.Addr)
 		require.NoError(t, err)
 
@@ -79,7 +57,7 @@ func TestClient_Send(t *testing.T) {
 	})
 
 	t.Run("it returns ErrConnectionClosed when Close was called", func(t *testing.T) {
-		c := client.NewClient(testSpec, ReadMessageLength, WriteMessageLength)
+		c := client.NewClient(testSpec, readMessageLength, writeMessageLength)
 		err = c.Connect(server.Addr)
 		require.NoError(t, err)
 
@@ -96,7 +74,7 @@ func TestClient_Send(t *testing.T) {
 
 	t.Run("it returns ErrSendTimeout when response was not received during SendTimeout time", func(t *testing.T) {
 
-		c := client.NewClient(testSpec, ReadMessageLength, WriteMessageLength, func(opts *client.Options) {
+		c := client.NewClient(testSpec, readMessageLength, writeMessageLength, func(opts *client.Options) {
 			opts.SendTimeout = 100 * time.Millisecond
 		})
 		err = c.Connect(server.Addr)
@@ -123,7 +101,7 @@ func TestClient_Send(t *testing.T) {
 	})
 
 	t.Run("pending requests should complete after Close was called", func(t *testing.T) {
-		c := client.NewClient(testSpec, ReadMessageLength, WriteMessageLength)
+		c := client.NewClient(testSpec, readMessageLength, writeMessageLength)
 		err = c.Connect(server.Addr)
 		require.NoError(t, err)
 		defer c.Close()
@@ -162,7 +140,7 @@ func TestClient_Send(t *testing.T) {
 	})
 
 	t.Run("responses received asynchronously", func(t *testing.T) {
-		c := client.NewClient(testSpec, ReadMessageLength, WriteMessageLength)
+		c := client.NewClient(testSpec, readMessageLength, writeMessageLength)
 		err = c.Connect(server.Addr)
 		require.NoError(t, err)
 		defer c.Close()
@@ -240,11 +218,11 @@ func TestClient_Send(t *testing.T) {
 		t.Skip("ping will be implemented as callback")
 
 		// we create server instance here to isolate pings count
-		server, err := test.NewServer(testSpec, ReadMessageLength, WriteMessageLength)
+		server, err := test.NewServer(testSpec, readMessageLength, writeMessageLength)
 		require.NoError(t, err)
 		defer server.Close()
 
-		c := client.NewClient(testSpec, ReadMessageLength, WriteMessageLength, func(opts *client.Options) {
+		c := client.NewClient(testSpec, readMessageLength, writeMessageLength, func(opts *client.Options) {
 			opts.IdleTime = 50 * time.Millisecond
 		})
 
@@ -262,7 +240,7 @@ func TestClient_Send(t *testing.T) {
 	})
 
 	t.Run("it handles unrecognized responses", func(t *testing.T) {
-		c := client.NewClient(testSpec, ReadMessageLength, WriteMessageLength, func(opts *client.Options) {
+		c := client.NewClient(testSpec, readMessageLength, writeMessageLength, func(opts *client.Options) {
 			opts.SendTimeout = 100 * time.Millisecond
 		})
 		err = c.Connect(server.Addr)
@@ -295,12 +273,12 @@ func BenchmarkSend10000(b *testing.B) { benchmarkSend(10000, b) }
 func BenchmarkSend100000(b *testing.B) { benchmarkSend(100000, b) }
 
 func benchmarkSend(m int, b *testing.B) {
-	server, err := test.NewServer(testSpec, ReadMessageLength, WriteMessageLength)
+	server, err := test.NewServer(testSpec, readMessageLength, writeMessageLength)
 	if err != nil {
 		b.Fatal("starting server: ", err)
 	}
 
-	c := client.NewClient(testSpec, ReadMessageLength, WriteMessageLength)
+	c := client.NewClient(testSpec, readMessageLength, writeMessageLength)
 	err = c.Connect(server.Addr)
 	if err != nil {
 		b.Fatal("connecting to the server: ", err)
@@ -339,6 +317,31 @@ func processMessages(b *testing.B, m int, c *client.Client) {
 		}()
 	}
 	wg.Wait()
+}
+
+// here are the implementation of the provider protocol:
+// * header reader and writer
+// * spec
+func readMessageLength(r io.Reader) (int, error) {
+	header := network.NewBinary2BytesHeader()
+	n, err := header.ReadFrom(r)
+	if err != nil {
+		return n, err
+	}
+
+	return header.Length(), nil
+}
+
+func writeMessageLength(w io.Writer, length int) (int, error) {
+	header := network.NewBinary2BytesHeader()
+	header.SetLength(length)
+
+	n, err := header.WriteTo(w)
+	if err != nil {
+		return n, fmt.Errorf("writing message header: %v", err)
+	}
+
+	return n, nil
 }
 
 var testSpec *iso8583.MessageSpec = &iso8583.MessageSpec{
