@@ -316,6 +316,8 @@ func (c *Client) handleResponse(rawMessage []byte) {
 	if replyCh, found := c.respMap[reqID]; found {
 		replyCh <- message
 		delete(c.respMap, reqID)
+	} else if c.opts.ExceptionHandler != nil {
+		go c.opts.ExceptionHandler(c, message)
 	} else {
 		log.Printf("can't find request for ID: %s", reqID)
 	}

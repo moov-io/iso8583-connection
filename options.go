@@ -1,6 +1,10 @@
 package client
 
-import "time"
+import (
+	"time"
+
+	"github.com/moov-io/iso8583"
+)
 
 type Options struct {
 	// SendTimeout sets the timeout for a Send operation
@@ -13,6 +17,13 @@ type Options struct {
 	// PingHandler is called when no message was sent during idle time
 	// it should be safe for concurrent use
 	PingHandler func(c *Client)
+
+	// ExceptionHandler is called when message from the server received and
+	// no matching request for it was found. ExceptionHandler should be
+	// used for the following use cases:
+	// * to log timed out responses
+	// * to handle network management messages (echo, heartbeat, etc.)
+	ExceptionHandler func(c *Client, message *iso8583.Message)
 }
 
 type Option func(*Options)
@@ -43,5 +54,12 @@ func SendTimeout(d time.Duration) Option {
 func PingHandler(handler func(c *Client)) Option {
 	return func(o *Options) {
 		o.PingHandler = handler
+	}
+}
+
+// ExceptionHandler sets a ExceptionHandler option
+func ExceptionHandler(handler func(c *Client, message *iso8583.Message)) Option {
+	return func(o *Options) {
+		o.ExceptionHandler = handler
 	}
 }
