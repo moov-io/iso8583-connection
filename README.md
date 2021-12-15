@@ -6,22 +6,60 @@ Following options are supported:
 
 * SendTimeout - sets the timeout for a Send operation
 * IdleTime - sets the period of inactivity (no messages sent) after which a ping message will be sent to the server
+* PingHandler - is called when no message was sent during idle time. It should be safe for concurrent use.
+* ExceptionHandler is called when message from the server received and no matching request for it was found. ExceptionHandler should be safe for concurrent use.
 
 If you want to override default options, you can do this when creating instance of a client:
 
 ```go
-c := client.NewClient(func(opts *Options) {
-	opts.SendTimeout = 100 * time.Millisecond
-	opts.IdleTime = 50 * time.Millisecond
-})
+
+pingHandler := func(c *client.Client) {
+	// send ping/heartbeat message like this
+	ping := iso8583.NewMessage(brandSpec)
+	// set other fields
+	response, err := c.Send(ping)
+	// handle error
+}
+
+exceptionHandler := func(c *client.Client, message *iso8583.Message) {
+	// log received message or send a reply like this
+	mti, err := message.GetMTI()
+	// handle err
+
+	// implement logic for network management messages
+	switch mti {
+	case "0800":
+		echo := iso8583.NewMessage(brandSpec)
+		// set other fields
+		response, err := c.Send(ping)
+		// handle error
+	default:
+		// log unrecognized message
+	}
+}
+
+c := client.NewClient(brandSpec,readMessageLength, writeMessageLength,
+	client.SendTimeout(100*time.Millisecond),
+	client.IdleTime(50*time.Millisecond),
+	client.PingHandler(pingHandler),
+	client.ExceptionHandler(exceptionHandler),
+)
 
 // work with the client
 ```
 
+
+
 ## Usage
 
 ```go
-c := client.NewClient()
+// see configuration options for more details about different handlers
+c := client.NewClient(brandSpec,readMessageLength, writeMessageLength,
+	client.SendTimeout(100*time.Millisecond),
+	client.IdleTime(50*time.Millisecond),
+	client.PingHandler(pingHandler),
+	client.ExceptionHandler(exceptionHandler),
+)
 err := c.Connect("127.0.0.1:3456")
 if err != nil {
 	// handle error
@@ -49,7 +87,6 @@ if mti != "0810" {
 	// handle error
 }
 ```
-
 
 ## Benchmark
 

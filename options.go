@@ -20,7 +20,7 @@ type Options struct {
 
 	// ExceptionHandler is called when message from the server received and
 	// no matching request for it was found. ExceptionHandler should be
-	// used for the following use cases:
+	// safe for concurrent use. Use it for the following use cases:
 	// * to log timed out responses
 	// * to handle network management messages (echo, heartbeat, etc.)
 	ExceptionHandler func(c *Client, message *iso8583.Message)
