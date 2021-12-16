@@ -20,24 +20,6 @@ var (
 	ErrSendTimeout      = errors.New("message send timeout")
 )
 
-type Options struct {
-	// SendTimeout sets the timeout for a Send operation
-	SendTimeout time.Duration
-
-	// IdleTime is the period at which the client will be sending ping
-	// message to the server
-	IdleTime time.Duration
-}
-
-type Option func(*Options)
-
-func GetDefaultOptions() Options {
-	return Options{
-		SendTimeout: 30 * time.Second,
-		IdleTime:    5 * time.Second,
-	}
-}
-
 // messageLengthReader reads message header from the r and returns message length
 type messageLengthReader func(r io.Reader) (int, error)
 
@@ -268,35 +250,15 @@ func (c *Client) writeLoop() {
 			}
 		case <-time.After(c.opts.IdleTime):
 			// if no message was sent during idle time, we have to send ping message
-			go c.sendPingMessage()
+			if c.opts.PingHandler != nil {
+				go c.opts.PingHandler(c)
+			}
 		case <-c.done:
 			return
 		}
 
 	}
 	// TODO: handle write error: reconnect, re-try?, etc.
-}
-
-func (c *Client) sendPingMessage() {
-	pingMessage := iso8583.NewMessage(c.spec)
-	pingMessage.MTI("0800")
-	pingMessage.Field(70, "371")
-
-	response, err := c.Send(pingMessage)
-	if err != nil {
-		log.Printf("sending ping message: %v", err)
-		return
-	}
-
-	mti, err := response.GetMTI()
-	if err != nil {
-		log.Printf("getting ping message MTI: %v", err)
-		return
-	}
-
-	if mti != "0810" {
-		log.Printf("unexpected MTI for ping message response: %s", mti)
-	}
 }
 
 // readLoop reads data from the socket (message length header and raw message)
@@ -354,6 +316,8 @@ func (c *Client) handleResponse(rawMessage []byte) {
 	if replyCh, found := c.respMap[reqID]; found {
 		replyCh <- message
 		delete(c.respMap, reqID)
+	} else if c.opts.UnmatchedMessageHandler != nil {
+		go c.opts.UnmatchedMessageHandler(c, message)
 	} else {
 		log.Printf("can't find request for ID: %s", reqID)
 	}
