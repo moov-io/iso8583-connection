@@ -249,10 +249,10 @@ func TestClient_Send(t *testing.T) {
 	})
 
 	t.Run("it handles unrecognized responses", func(t *testing.T) {
-		// exceptionHandler should be called for the second message
+		// unmatchedMessageHandler should be called for the second message
 		// reply because client.Send will return ErrSendTimeout and
 		// reply will not be handled by the original caller
-		exceptionHandler := func(c *client.Client, message *iso8583.Message) {
+		unmatchedMessageHandler := func(c *client.Client, message *iso8583.Message) {
 			mti, err := message.GetMTI()
 			require.NoError(t, err)
 			require.Equal(t, "0810", mti)
@@ -264,7 +264,7 @@ func TestClient_Send(t *testing.T) {
 
 		c := client.NewClient(testSpec, readMessageLength, writeMessageLength,
 			client.SendTimeout(100*time.Millisecond),
-			client.ExceptionHandler(exceptionHandler),
+			client.UnmatchedMessageHandler(unmatchedMessageHandler),
 		)
 		err = c.Connect(server.Addr)
 		require.NoError(t, err)

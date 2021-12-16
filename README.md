@@ -6,8 +6,8 @@ Following options are supported:
 
 * SendTimeout - sets the timeout for a Send operation
 * IdleTime - sets the period of inactivity (no messages sent) after which a ping message will be sent to the server
-* PingHandler - is called when no message was sent during idle time. It should be safe for concurrent use.
-* ExceptionHandler is called when message from the server received and no matching request for it was found. ExceptionHandler should be safe for concurrent use.
+* PingHandler - called when no message was sent during idle time. It should be safe for concurrent use.
+* UnmatchedMessageHandler - called when message from the server received and no matching request for it was found. ExceptionHandler should be safe for concurrent use.
 
 If you want to override default options, you can do this when creating instance of a client:
 
@@ -21,7 +21,7 @@ pingHandler := func(c *client.Client) {
 	// handle error
 }
 
-exceptionHandler := func(c *client.Client, message *iso8583.Message) {
+unmatchedMessageHandler := func(c *client.Client, message *iso8583.Message) {
 	// log received message or send a reply like this
 	mti, err := message.GetMTI()
 	// handle err
@@ -42,7 +42,7 @@ c := client.NewClient(brandSpec,readMessageLength, writeMessageLength,
 	client.SendTimeout(100*time.Millisecond),
 	client.IdleTime(50*time.Millisecond),
 	client.PingHandler(pingHandler),
-	client.ExceptionHandler(exceptionHandler),
+	client.UnmatchedMessageHandler(unmatchedMessageHandler),
 )
 
 // work with the client
@@ -58,7 +58,7 @@ c := client.NewClient(brandSpec,readMessageLength, writeMessageLength,
 	client.SendTimeout(100*time.Millisecond),
 	client.IdleTime(50*time.Millisecond),
 	client.PingHandler(pingHandler),
-	client.ExceptionHandler(exceptionHandler),
+	client.UnmatchedMessageHandler(unmatchedMessageHandler),
 )
 err := c.Connect("127.0.0.1:3456")
 if err != nil {
