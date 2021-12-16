@@ -18,9 +18,10 @@ type Options struct {
 	// it should be safe for concurrent use
 	PingHandler func(c *Client)
 
-	// UnmatchedMessageHandler is called when message from the server received and
-	// no matching request for it was found. UnmatchedMessageHandler should be
-	// safe for concurrent use. Use it for the following use cases:
+	// UnmatchedMessageHandler is called when a message from the server is
+	// received and no matching request for it was found.
+	// UnmatchedMessageHandler should be safe for concurrent use. Use it
+	// for the following use cases:
 	// * to log timed out responses
 	// * to handle network management messages (echo, heartbeat, etc.)
 	UnmatchedMessageHandler func(c *Client, message *iso8583.Message)
@@ -57,7 +58,7 @@ func PingHandler(handler func(c *Client)) Option {
 	}
 }
 
-// UnmatchedMessageHandler sets a ExceptionHandler option
+// UnmatchedMessageHandler sets an UnmatchedMessageHandler option
 func UnmatchedMessageHandler(handler func(c *Client, message *iso8583.Message)) Option {
 	return func(o *Options) {
 		o.UnmatchedMessageHandler = handler

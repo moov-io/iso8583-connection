@@ -7,7 +7,7 @@ Following options are supported:
 * SendTimeout - sets the timeout for a Send operation
 * IdleTime - sets the period of inactivity (no messages sent) after which a ping message will be sent to the server
 * PingHandler - called when no message was sent during idle time. It should be safe for concurrent use.
-* UnmatchedMessageHandler - called when message from the server received and no matching request for it was found. ExceptionHandler should be safe for concurrent use.
+* UnmatchedMessageHandler - called when a message from the server is received and no matching request for it was found. UnmatchedMessageHandler should be safe for concurrent use.
 
 If you want to override default options, you can do this when creating instance of a client:
 
