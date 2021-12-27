@@ -215,6 +215,62 @@ func (c *Client) Send(message *iso8583.Message) (*iso8583.Message, error) {
 	return resp, err
 }
 
+// Reply sends message and do not wait and expect reply to be received
+// any reaply received for message send using Reply will be handled with
+// unmatchedMessageHandler
+func (c *Client) Reply(message *iso8583.Message) error {
+	c.wg.Add(1)
+	defer c.wg.Done()
+
+	c.mutex.Lock()
+	if c.closing {
+		c.mutex.Unlock()
+		return ErrConnectionClosed
+	}
+	c.mutex.Unlock()
+
+	// prepare message for sending
+
+	// set STAN if it's empty
+	err := c.setMessageSTAN(message)
+	if err != nil {
+		return fmt.Errorf("setting message STAN: %v", err)
+	}
+
+	var buf bytes.Buffer
+	packed, err := message.Pack()
+	if err != nil {
+		return fmt.Errorf("packing message: %v", err)
+	}
+
+	// create header
+	_, err = c.writeMessageLength(&buf, len(packed))
+	if err != nil {
+		return fmt.Errorf("writing message header to buffer: %v", err)
+	}
+
+	_, err = buf.Write(packed)
+	if err != nil {
+		return fmt.Errorf("writing packed message to buffer: %v", err)
+	}
+
+	req := request{
+		rawMessage: buf.Bytes(),
+		errCh:      make(chan error),
+	}
+
+	c.requestsCh <- req
+
+	select {
+	case err = <-req.errCh:
+	case <-time.After(c.opts.SendTimeout):
+		err = ErrSendTimeout
+	}
+
+	return err
+}
+
+// setMessageSTAN sets STAN if message does not have it
 func (c *Client) setMessageSTAN(message *iso8583.Message) error {
 	stan, err := message.GetString(11)
 	if err != nil {
@@ -256,9 +312,12 @@ func (c *Client) writeLoop() {
 	for {
 		select {
 		case req := <-c.requestsCh:
-			c.pendingRequestsMu.Lock()
-			c.respMap[req.requestID] = req.replyCh
-			c.pendingRequestsMu.Unlock()
+			// if it's a request message, not a response
+			if req.replyCh != nil {
+				c.pendingRequestsMu.Lock()
+				c.respMap[req.requestID] = req.replyCh
+				c.pendingRequestsMu.Unlock()
+			}
 
 			_, err := c.conn.Write([]byte(req.rawMessage))
 			if err != nil {
@@ -266,6 +325,14 @@ func (c *Client) writeLoop() {
 				c.pendingRequestsMu.Lock()
 				delete(c.respMap, req.requestID)
 				c.pendingRequestsMu.Unlock()
+			}
+
+			// for replies (requests without replyCh) we just
+			// return nil to errCh as caller is waiting for error
+			// or send timeout. Regular requests waits for responses
+			// to be received to their replyCh channel.
+			if req.replyCh == nil {
+				req.errCh <- nil
 			}
 		case <-time.After(c.opts.IdleTime):
 			// if no message was sent during idle time, we have to send ping message
