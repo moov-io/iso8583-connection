@@ -374,7 +374,12 @@ func (c *Client) readLoop() {
 	c.mutex.Lock()
 	// if we receive error and we are closing connection, we have to set
 	if err != nil && !c.closing {
-		fmt.Fprintln(os.Stderr, "reading from socket:", err)
+		if errors.Is(err, io.EOF) {
+			// we can hanlde connection closed somehow (reconnect?)
+			fmt.Fprintln(os.Stderr, "connection closed")
+		} else {
+			fmt.Fprintln(os.Stderr, "reading from socket:", err)
+		}
 	}
 	c.mutex.Unlock()
 
