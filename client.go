@@ -20,17 +20,17 @@ var (
 	ErrSendTimeout      = errors.New("message send timeout")
 )
 
-// messageLengthReader reads message header from the r and returns message length
-type messageLengthReader func(r io.Reader) (int, error)
+// MessageLengthReader reads message header from the r and returns message length
+type MessageLengthReader func(r io.Reader) (int, error)
 
-// messageLengthWriter writes message header with encoded length into w
-type messageLengthWriter func(w io.Writer, length int) (int, error)
+// MessageLengthWriter writes message header with encoded length into w
+type MessageLengthWriter func(w io.Writer, length int) (int, error)
 
 // Client represents an ISO 8583 Client. Client may be used
 // by multiple goroutines simultaneously.
 type Client struct {
 	opts       Options
-	conn       net.Conn
+	conn       io.ReadWriteCloser
 	requestsCh chan request
 	done       chan struct{}
 
@@ -39,11 +39,11 @@ type Client struct {
 
 	// readMessageLength is the function that reads message length header
 	// from the connection, decodes and returns message length
-	readMessageLength messageLengthReader
+	readMessageLength MessageLengthReader
 
 	// writeMessageLength is the function that encodes message length and
 	// writes message length header into the connection
-	writeMessageLength messageLengthWriter
+	writeMessageLength MessageLengthWriter
 
 	pendingRequestsMu sync.Mutex
 	respMap           map[string]chan *iso8583.Message
@@ -61,7 +61,7 @@ type Client struct {
 	stan int32
 }
 
-func NewClient(spec *iso8583.MessageSpec, mlReader messageLengthReader, mlWriter messageLengthWriter, options ...Option) *Client {
+func NewClient(spec *iso8583.MessageSpec, mlReader MessageLengthReader, mlWriter MessageLengthWriter, options ...Option) *Client {
 	opts := GetDefaultOptions()
 	for _, opt := range options {
 		opt(&opts)
@@ -78,7 +78,17 @@ func NewClient(spec *iso8583.MessageSpec, mlReader messageLengthReader, mlWriter
 	}
 }
 
-// Connect connects to the server
+// NewClientWithConn - in addition to NewClient args, it accepts conn which
+// will be used insde client. Returned client is ready to be used for message
+// sending and receiving
+func NewClientWithConn(conn io.ReadWriteCloser, spec *iso8583.MessageSpec, mlReader MessageLengthReader, mlWriter MessageLengthWriter, options ...Option) *Client {
+	c := NewClient(spec, mlReader, mlWriter, options...)
+	c.conn = conn
+	c.run()
+	return c
+}
+
+// Connect connects client to the server by provided addr
 func (c *Client) Connect(addr string) error {
 	conn, err := net.Dial("tcp", addr)
 	if err != nil {
@@ -86,10 +96,15 @@ func (c *Client) Connect(addr string) error {
 	}
 	c.conn = conn
 
-	go c.writeLoop()
-	go c.readLoop()
+	c.run()
 
 	return nil
+}
+
+// run starts read and write loops in goroutines
+func (c *Client) run() {
+	go c.writeLoop()
+	go c.readLoop()
 }
 
 // Close waits for pending requests to complete and then closes network
@@ -112,6 +127,10 @@ func (c *Client) Close() error {
 	return c.conn.Close()
 }
 
+func (c *Client) Done() <-chan struct{} {
+	return c.done
+}
+
 // request represents request to the ISO 8583 server
 type request struct {
 	// includes length header and message itself
@@ -127,7 +146,7 @@ type request struct {
 	errCh chan error
 }
 
-// send message and waits for the response
+// Send sends message and waits for the response
 func (c *Client) Send(message *iso8583.Message) (*iso8583.Message, error) {
 	c.wg.Add(1)
 	defer c.wg.Done()
