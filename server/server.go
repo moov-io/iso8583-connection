@@ -1,4 +1,4 @@
-package test
+package server
 
 import (
 	"fmt"
@@ -9,7 +9,8 @@ import (
 	client "github.com/moovfinancial/iso8583-client"
 )
 
-// Server is a sandbox server for iso8583. Actually, it dreams to be a real sanbox.
+// Server is a simple iso8583 server implementation currently used to test
+// iso8583-client and most probably to be used for iso8583-test-harness
 type Server struct {
 	clientOpts []client.Option
 	ln         net.Listener
@@ -30,7 +31,7 @@ type Server struct {
 	writeMessageLength client.MessageLengthWriter
 }
 
-func NewServer(spec *iso8583.MessageSpec, mlReader client.MessageLengthReader, mlWriter client.MessageLengthWriter, clientOpts ...client.Option) (*Server, error) {
+func New(spec *iso8583.MessageSpec, mlReader client.MessageLengthReader, mlWriter client.MessageLengthWriter, clientOpts ...client.Option) (*Server, error) {
 	// automatically choose port
 	ln, err := net.Listen("tcp", "127.0.0.1:")
 	if err != nil {

@@ -8,12 +8,12 @@ import (
 
 	"github.com/moov-io/iso8583"
 	client "github.com/moovfinancial/iso8583-client"
-	"github.com/moovfinancial/iso8583-client/test"
+	"github.com/moovfinancial/iso8583-client/server"
 	"github.com/stretchr/testify/require"
 )
 
 func TestClient_Connect(t *testing.T) {
-	server, err := test.NewServer(testSpec, readMessageLength, writeMessageLength)
+	server, err := server.New(testSpec, readMessageLength, writeMessageLength)
 	require.NoError(t, err)
 	defer server.Close()
 
@@ -292,7 +292,7 @@ func BenchmarkSend10000(b *testing.B) { benchmarkSend(10000, b) }
 func BenchmarkSend100000(b *testing.B) { benchmarkSend(100000, b) }
 
 func benchmarkSend(m int, b *testing.B) {
-	server, err := test.NewServer(testSpec, readMessageLength, writeMessageLength)
+	server, err := server.New(testSpec, readMessageLength, writeMessageLength)
 	if err != nil {
 		b.Fatal("starting server: ", err)
 	}

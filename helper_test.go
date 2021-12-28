@@ -13,7 +13,7 @@ import (
 	"github.com/moov-io/iso8583/network"
 	"github.com/moov-io/iso8583/prefix"
 	client "github.com/moovfinancial/iso8583-client"
-	"github.com/moovfinancial/iso8583-client/test"
+	"github.com/moovfinancial/iso8583-client/server"
 )
 
 // here are the implementation of the provider protocol:
@@ -75,7 +75,7 @@ var testSpec *iso8583.MessageSpec = &iso8583.MessageSpec{
 type testServer struct {
 	Addr string
 
-	server *test.Server
+	server *server.Server
 
 	// to protect following
 	mutex         sync.Mutex
@@ -136,7 +136,7 @@ func NewTestServer() (*testServer, error) {
 		c.Reply(message)
 	}
 
-	server, err := test.NewServer(testSpec, readMessageLength, writeMessageLength, client.UnmatchedMessageHandler(testServerLogic))
+	server, err := server.New(testSpec, readMessageLength, writeMessageLength, client.UnmatchedMessageHandler(testServerLogic))
 	if err != nil {
 		return nil, err
 	}
