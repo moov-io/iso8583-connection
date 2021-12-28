@@ -30,7 +30,7 @@ type Server struct {
 	writeMessageLength client.MessageLengthWriter
 }
 
-func NewServer(spec *iso8583.MessageSpec, mlReader client.MessageLengthReader, mlWriter client.MessageLengthWriter, options ...client.Option) (*Server, error) {
+func NewServer(spec *iso8583.MessageSpec, mlReader client.MessageLengthReader, mlWriter client.MessageLengthWriter, clientOpts ...client.Option) (*Server, error) {
 	// automatically choose port
 	ln, err := net.Listen("tcp", "127.0.0.1:")
 	if err != nil {
@@ -38,7 +38,7 @@ func NewServer(spec *iso8583.MessageSpec, mlReader client.MessageLengthReader, m
 	}
 
 	s := &Server{
-		clientOpts:         options,
+		clientOpts:         clientOpts,
 		ln:                 ln,
 		Addr:               ln.Addr().String(),
 		closeCh:            make(chan bool),
