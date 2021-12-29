@@ -375,8 +375,9 @@ func (c *Client) readLoop() {
 	// if we receive error and we are closing connection, we have to set
 	if err != nil && !c.closing {
 		if errors.Is(err, io.EOF) {
+			// TODO handle erorrs better
 			// we can hanlde connection closed somehow (reconnect?)
-			fmt.Fprintln(os.Stderr, "connection closed")
+			// fmt.Fprintln(os.Stderr, "connection closed")
 		} else {
 			fmt.Fprintln(os.Stderr, "reading from socket:", err)
 		}

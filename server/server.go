@@ -31,22 +31,25 @@ type Server struct {
 	writeMessageLength client.MessageLengthWriter
 }
 
-func New(spec *iso8583.MessageSpec, mlReader client.MessageLengthReader, mlWriter client.MessageLengthWriter, clientOpts ...client.Option) (*Server, error) {
+func New(spec *iso8583.MessageSpec, mlReader client.MessageLengthReader, mlWriter client.MessageLengthWriter, clientOpts ...client.Option) *Server {
 	// automatically choose port
-	ln, err := net.Listen("tcp", "127.0.0.1:")
-	if err != nil {
-		return nil, err
-	}
-
-	s := &Server{
+	return &Server{
 		clientOpts:         clientOpts,
-		ln:                 ln,
-		Addr:               ln.Addr().String(),
 		closeCh:            make(chan bool),
 		spec:               spec,
 		readMessageLength:  mlReader,
 		writeMessageLength: mlWriter,
 	}
+}
+
+func (s *Server) Start(addr string) error {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+
+	s.Addr = ln.Addr().String()
+	s.ln = ln
 
 	s.wg.Add(1)
 	go func() {
@@ -75,7 +78,7 @@ func New(spec *iso8583.MessageSpec, mlReader client.MessageLengthReader, mlWrite
 		}
 	}()
 
-	return s, nil
+	return nil
 }
 
 func (s *Server) Close() {

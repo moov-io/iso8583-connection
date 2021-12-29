@@ -136,7 +136,9 @@ func NewTestServer() (*testServer, error) {
 		c.Reply(message)
 	}
 
-	server, err := server.New(testSpec, readMessageLength, writeMessageLength, client.UnmatchedMessageHandler(testServerLogic))
+	server := server.New(testSpec, readMessageLength, writeMessageLength, client.UnmatchedMessageHandler(testServerLogic))
+	// start on random port
+	err := server.Start("127.0.0.1:")
 	if err != nil {
 		return nil, err
 	}

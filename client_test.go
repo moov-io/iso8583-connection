@@ -13,7 +13,7 @@ import (
 )
 
 func TestClient_Connect(t *testing.T) {
-	server, err := server.New(testSpec, readMessageLength, writeMessageLength)
+	server, err := NewTestServer()
 	require.NoError(t, err)
 	defer server.Close()
 
@@ -292,7 +292,9 @@ func BenchmarkSend10000(b *testing.B) { benchmarkSend(10000, b) }
 func BenchmarkSend100000(b *testing.B) { benchmarkSend(100000, b) }
 
 func benchmarkSend(m int, b *testing.B) {
-	server, err := server.New(testSpec, readMessageLength, writeMessageLength)
+	server := server.New(testSpec, readMessageLength, writeMessageLength)
+	// start on random port
+	err := server.Start("127.0.0.1:")
 	if err != nil {
 		b.Fatal("starting server: ", err)
 	}
