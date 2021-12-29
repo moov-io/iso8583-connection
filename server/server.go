@@ -65,7 +65,8 @@ func (s *Server) Start(addr string) error {
 				case <-s.closeCh:
 					return
 				default:
-					fmt.Printf("Error accepting connection: %v\n", err)
+					// TODO: better handle errors
+					fmt.Printf("Error accepting connection: %s\n", err.Error())
 					return
 				}
 			}

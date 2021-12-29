@@ -35,7 +35,7 @@ func writeMessageLength(w io.Writer, length int) (int, error) {
 
 	n, err := header.WriteTo(w)
 	if err != nil {
-		return n, fmt.Errorf("writing message header: %v", err)
+		return n, fmt.Errorf("writing message header: %w", err)
 	}
 
 	return n, nil
@@ -100,7 +100,7 @@ func NewTestServer() (*testServer, error) {
 	testServerLogic := func(c *client.Client, message *iso8583.Message) {
 		mti, err := message.GetMTI()
 		if err != nil {
-			log.Printf("getting MTI: %v", err)
+			log.Printf("getting MTI: %s", err.Error())
 			return
 		}
 
@@ -118,7 +118,7 @@ func NewTestServer() (*testServer, error) {
 		if f2 != nil {
 			code, err := f2.String()
 			if err != nil {
-				log.Printf("getting field 2: %v", err)
+				log.Printf("getting field 2: %s", err.Error())
 				return
 			}
 

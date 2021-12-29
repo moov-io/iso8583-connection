@@ -92,7 +92,7 @@ func NewClientWithConn(conn io.ReadWriteCloser, spec *iso8583.MessageSpec, mlRea
 func (c *Client) Connect(addr string) error {
 	conn, err := net.Dial("tcp", addr)
 	if err != nil {
-		return fmt.Errorf("connecting to server: %v", err)
+		return fmt.Errorf("connecting to server: %w", err)
 	}
 	c.conn = conn
 
@@ -163,30 +163,30 @@ func (c *Client) Send(message *iso8583.Message) (*iso8583.Message, error) {
 	// set STAN if it's empty
 	err := c.setMessageSTAN(message)
 	if err != nil {
-		return nil, fmt.Errorf("setting message STAN: %v", err)
+		return nil, fmt.Errorf("setting message STAN: %w", err)
 	}
 
 	var buf bytes.Buffer
 	packed, err := message.Pack()
 	if err != nil {
-		return nil, fmt.Errorf("packing message: %v", err)
+		return nil, fmt.Errorf("packing message: %w", err)
 	}
 
 	// create header
 	_, err = c.writeMessageLength(&buf, len(packed))
 	if err != nil {
-		return nil, fmt.Errorf("writing message header to buffer: %v", err)
+		return nil, fmt.Errorf("writing message header to buffer: %w", err)
 	}
 
 	_, err = buf.Write(packed)
 	if err != nil {
-		return nil, fmt.Errorf("writing packed message to buffer: %v", err)
+		return nil, fmt.Errorf("writing packed message to buffer: %w", err)
 	}
 
 	// prepare request
 	reqID, err := requestID(message)
 	if err != nil {
-		return nil, fmt.Errorf("getting request ID: %v", err)
+		return nil, fmt.Errorf("getting request ID: %w", err)
 	}
 
 	req := request{
@@ -215,7 +215,7 @@ func (c *Client) Send(message *iso8583.Message) (*iso8583.Message, error) {
 	return resp, err
 }
 
-// Reply sends message and do not wait and expect reply to be received
+// Reply sends the message and does not wait for a reply to be received
 // any reaply received for message send using Reply will be handled with
 // unmatchedMessageHandler
 func (c *Client) Reply(message *iso8583.Message) error {
@@ -234,24 +234,24 @@ func (c *Client) Reply(message *iso8583.Message) error {
 	// set STAN if it's empty
 	err := c.setMessageSTAN(message)
 	if err != nil {
-		return fmt.Errorf("setting message STAN: %v", err)
+		return fmt.Errorf("setting message STAN: %w", err)
 	}
 
 	var buf bytes.Buffer
 	packed, err := message.Pack()
 	if err != nil {
-		return fmt.Errorf("packing message: %v", err)
+		return fmt.Errorf("packing message: %w", err)
 	}
 
 	// create header
 	_, err = c.writeMessageLength(&buf, len(packed))
 	if err != nil {
-		return fmt.Errorf("writing message header to buffer: %v", err)
+		return fmt.Errorf("writing message header to buffer: %w", err)
 	}
 
 	_, err = buf.Write(packed)
 	if err != nil {
-		return fmt.Errorf("writing packed message to buffer: %v", err)
+		return fmt.Errorf("writing packed message to buffer: %w", err)
 	}
 
 	req := request{
@@ -274,7 +274,7 @@ func (c *Client) Reply(message *iso8583.Message) error {
 func (c *Client) setMessageSTAN(message *iso8583.Message) error {
 	stan, err := message.GetString(11)
 	if err != nil {
-		return fmt.Errorf("getting STAN (field 11) of the message: %v", err)
+		return fmt.Errorf("getting STAN (field 11) of the message: %w", err)
 	}
 
 	// no STAN was provided, generate a new one
@@ -284,7 +284,7 @@ func (c *Client) setMessageSTAN(message *iso8583.Message) error {
 
 	err = message.Field(11, stan)
 	if err != nil {
-		return fmt.Errorf("setting STAN (field 11): %s of the message: %v", stan, err)
+		return fmt.Errorf("setting STAN (field 11): %s of the message: %w", stan, err)
 	}
 
 	return nil
@@ -301,7 +301,7 @@ func (c *Client) setMessageSTAN(message *iso8583.Message) error {
 func requestID(message *iso8583.Message) (string, error) {
 	stan, err := message.GetString(11)
 	if err != nil {
-		return "", fmt.Errorf("getting STAN (field 11) of the message: %v", err)
+		return "", fmt.Errorf("getting STAN (field 11) of the message: %w", err)
 	}
 	return stan, nil
 }

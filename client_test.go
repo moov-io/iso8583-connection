@@ -1,7 +1,6 @@
 package client_test
 
 import (
-	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -48,7 +47,6 @@ func TestClient_Send(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "0810", mti)
 
-		fmt.Println("close client")
 		require.NoError(t, c.Close())
 	})
 
