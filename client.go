@@ -20,17 +20,17 @@ var (
 	ErrSendTimeout      = errors.New("message send timeout")
 )
 
-// messageLengthReader reads message header from the r and returns message length
-type messageLengthReader func(r io.Reader) (int, error)
+// MessageLengthReader reads message header from the r and returns message length
+type MessageLengthReader func(r io.Reader) (int, error)
 
-// messageLengthWriter writes message header with encoded length into w
-type messageLengthWriter func(w io.Writer, length int) (int, error)
+// MessageLengthWriter writes message header with encoded length into w
+type MessageLengthWriter func(w io.Writer, length int) (int, error)
 
 // Client represents an ISO 8583 Client. Client may be used
 // by multiple goroutines simultaneously.
 type Client struct {
 	opts       Options
-	conn       net.Conn
+	conn       io.ReadWriteCloser
 	requestsCh chan request
 	done       chan struct{}
 
@@ -39,11 +39,11 @@ type Client struct {
 
 	// readMessageLength is the function that reads message length header
 	// from the connection, decodes and returns message length
-	readMessageLength messageLengthReader
+	readMessageLength MessageLengthReader
 
 	// writeMessageLength is the function that encodes message length and
 	// writes message length header into the connection
-	writeMessageLength messageLengthWriter
+	writeMessageLength MessageLengthWriter
 
 	pendingRequestsMu sync.Mutex
 	respMap           map[string]chan *iso8583.Message
@@ -61,7 +61,7 @@ type Client struct {
 	stan int32
 }
 
-func NewClient(spec *iso8583.MessageSpec, mlReader messageLengthReader, mlWriter messageLengthWriter, options ...Option) *Client {
+func NewClient(spec *iso8583.MessageSpec, mlReader MessageLengthReader, mlWriter MessageLengthWriter, options ...Option) *Client {
 	opts := GetDefaultOptions()
 	for _, opt := range options {
 		opt(&opts)
@@ -78,18 +78,33 @@ func NewClient(spec *iso8583.MessageSpec, mlReader messageLengthReader, mlWriter
 	}
 }
 
-// Connect connects to the server
+// NewClientWithConn - in addition to NewClient args, it accepts conn which
+// will be used insde client. Returned client is ready to be used for message
+// sending and receiving
+func NewClientWithConn(conn io.ReadWriteCloser, spec *iso8583.MessageSpec, mlReader MessageLengthReader, mlWriter MessageLengthWriter, options ...Option) *Client {
+	c := NewClient(spec, mlReader, mlWriter, options...)
+	c.conn = conn
+	c.run()
+	return c
+}
+
+// Connect connects client to the server by provided addr
 func (c *Client) Connect(addr string) error {
 	conn, err := net.Dial("tcp", addr)
 	if err != nil {
-		return fmt.Errorf("connecting to server: %v", err)
+		return fmt.Errorf("connecting to server: %w", err)
 	}
 	c.conn = conn
 
-	go c.writeLoop()
-	go c.readLoop()
+	c.run()
 
 	return nil
+}
+
+// run starts read and write loops in goroutines
+func (c *Client) run() {
+	go c.writeLoop()
+	go c.readLoop()
 }
 
 // Close waits for pending requests to complete and then closes network
@@ -112,6 +127,10 @@ func (c *Client) Close() error {
 	return c.conn.Close()
 }
 
+func (c *Client) Done() <-chan struct{} {
+	return c.done
+}
+
 // request represents request to the ISO 8583 server
 type request struct {
 	// includes length header and message itself
@@ -127,7 +146,7 @@ type request struct {
 	errCh chan error
 }
 
-// send message and waits for the response
+// Send sends message and waits for the response
 func (c *Client) Send(message *iso8583.Message) (*iso8583.Message, error) {
 	c.wg.Add(1)
 	defer c.wg.Done()
@@ -144,30 +163,30 @@ func (c *Client) Send(message *iso8583.Message) (*iso8583.Message, error) {
 	// set STAN if it's empty
 	err := c.setMessageSTAN(message)
 	if err != nil {
-		return nil, fmt.Errorf("setting message STAN: %v", err)
+		return nil, fmt.Errorf("setting message STAN: %w", err)
 	}
 
 	var buf bytes.Buffer
 	packed, err := message.Pack()
 	if err != nil {
-		return nil, fmt.Errorf("packing message: %v", err)
+		return nil, fmt.Errorf("packing message: %w", err)
 	}
 
 	// create header
 	_, err = c.writeMessageLength(&buf, len(packed))
 	if err != nil {
-		return nil, fmt.Errorf("writing message header to buffer: %v", err)
+		return nil, fmt.Errorf("writing message header to buffer: %w", err)
 	}
 
 	_, err = buf.Write(packed)
 	if err != nil {
-		return nil, fmt.Errorf("writing packed message to buffer: %v", err)
+		return nil, fmt.Errorf("writing packed message to buffer: %w", err)
 	}
 
 	// prepare request
 	reqID, err := requestID(message)
 	if err != nil {
-		return nil, fmt.Errorf("getting request ID: %v", err)
+		return nil, fmt.Errorf("getting request ID: %w", err)
 	}
 
 	req := request{
@@ -196,10 +215,66 @@ func (c *Client) Send(message *iso8583.Message) (*iso8583.Message, error) {
 	return resp, err
 }
 
+// Reply sends the message and does not wait for a reply to be received
+// any reaply received for message send using Reply will be handled with
+// unmatchedMessageHandler
+func (c *Client) Reply(message *iso8583.Message) error {
+	c.wg.Add(1)
+	defer c.wg.Done()
+
+	c.mutex.Lock()
+	if c.closing {
+		c.mutex.Unlock()
+		return ErrConnectionClosed
+	}
+	c.mutex.Unlock()
+
+	// prepare message for sending
+
+	// set STAN if it's empty
+	err := c.setMessageSTAN(message)
+	if err != nil {
+		return fmt.Errorf("setting message STAN: %w", err)
+	}
+
+	var buf bytes.Buffer
+	packed, err := message.Pack()
+	if err != nil {
+		return fmt.Errorf("packing message: %w", err)
+	}
+
+	// create header
+	_, err = c.writeMessageLength(&buf, len(packed))
+	if err != nil {
+		return fmt.Errorf("writing message header to buffer: %w", err)
+	}
+
+	_, err = buf.Write(packed)
+	if err != nil {
+		return fmt.Errorf("writing packed message to buffer: %w", err)
+	}
+
+	req := request{
+		rawMessage: buf.Bytes(),
+		errCh:      make(chan error),
+	}
+
+	c.requestsCh <- req
+
+	select {
+	case err = <-req.errCh:
+	case <-time.After(c.opts.SendTimeout):
+		err = ErrSendTimeout
+	}
+
+	return err
+}
+
+// setMessageSTAN sets STAN if message does not have it
 func (c *Client) setMessageSTAN(message *iso8583.Message) error {
 	stan, err := message.GetString(11)
 	if err != nil {
-		return fmt.Errorf("getting STAN (field 11) of the message: %v", err)
+		return fmt.Errorf("getting STAN (field 11) of the message: %w", err)
 	}
 
 	// no STAN was provided, generate a new one
@@ -209,7 +284,7 @@ func (c *Client) setMessageSTAN(message *iso8583.Message) error {
 
 	err = message.Field(11, stan)
 	if err != nil {
-		return fmt.Errorf("setting STAN (field 11): %s of the message: %v", stan, err)
+		return fmt.Errorf("setting STAN (field 11): %s of the message: %w", stan, err)
 	}
 
 	return nil
@@ -226,7 +301,7 @@ func (c *Client) setMessageSTAN(message *iso8583.Message) error {
 func requestID(message *iso8583.Message) (string, error) {
 	stan, err := message.GetString(11)
 	if err != nil {
-		return "", fmt.Errorf("getting STAN (field 11) of the message: %v", err)
+		return "", fmt.Errorf("getting STAN (field 11) of the message: %w", err)
 	}
 	return stan, nil
 }
@@ -237,9 +312,12 @@ func (c *Client) writeLoop() {
 	for {
 		select {
 		case req := <-c.requestsCh:
-			c.pendingRequestsMu.Lock()
-			c.respMap[req.requestID] = req.replyCh
-			c.pendingRequestsMu.Unlock()
+			// if it's a request message, not a response
+			if req.replyCh != nil {
+				c.pendingRequestsMu.Lock()
+				c.respMap[req.requestID] = req.replyCh
+				c.pendingRequestsMu.Unlock()
+			}
 
 			_, err := c.conn.Write([]byte(req.rawMessage))
 			if err != nil {
@@ -247,6 +325,14 @@ func (c *Client) writeLoop() {
 				c.pendingRequestsMu.Lock()
 				delete(c.respMap, req.requestID)
 				c.pendingRequestsMu.Unlock()
+			}
+
+			// for replies (requests without replyCh) we just
+			// return nil to errCh as caller is waiting for error
+			// or send timeout. Regular requests waits for responses
+			// to be received to their replyCh channel.
+			if req.replyCh == nil {
+				req.errCh <- nil
 			}
 		case <-time.After(c.opts.IdleTime):
 			// if no message was sent during idle time, we have to send ping message
@@ -288,7 +374,13 @@ func (c *Client) readLoop() {
 	c.mutex.Lock()
 	// if we receive error and we are closing connection, we have to set
 	if err != nil && !c.closing {
-		fmt.Fprintln(os.Stderr, "reading from socket:", err)
+		if errors.Is(err, io.EOF) {
+			// TODO handle erorrs better
+			// we can hanlde connection closed somehow (reconnect?)
+			// fmt.Fprintln(os.Stderr, "connection closed")
+		} else {
+			fmt.Fprintln(os.Stderr, "reading from socket:", err)
+		}
 	}
 	c.mutex.Unlock()
 
