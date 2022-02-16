@@ -48,6 +48,24 @@ c := client.NewClient(brandSpec,readMessageLength, writeMessageLength,
 // work with the client
 ```
 
+### (m)TLS connection
+
+Configure client to use TLS during connect:
+
+```go
+c, err := client.NewClient(
+	testSpec,
+	readMessageLength,
+	writeMessageLength,
+	// if server requires client certificate (mTLS)
+	client.ClientCert("./testdata/client.crt", "./testdata/client.key"),
+	// if you use a self signed certificate, provide root certificate
+	client.RootCAs("./testdata/ca.crt"),
+)
+// handle error
+```
+
+
 
 
 ## Usage

@@ -73,7 +73,10 @@ func (s *Server) Start(addr string) error {
 
 			s.wg.Add(1)
 			go func() {
-				s.handleConnection(conn)
+				err := s.handleConnection(conn)
+				if err != nil {
+					fmt.Printf("Error handling connection: %s\n", err.Error())
+				}
 				s.wg.Done()
 			}()
 		}
@@ -88,8 +91,11 @@ func (s *Server) Close() {
 	s.wg.Wait()
 }
 
-func (s *Server) handleConnection(conn net.Conn) {
-	c := client.NewClientWithConn(conn, s.spec, s.readMessageLength, s.writeMessageLength, s.clientOpts...)
+func (s *Server) handleConnection(conn net.Conn) error {
+	c, err := client.NewClientWithConn(conn, s.spec, s.readMessageLength, s.writeMessageLength, s.clientOpts...)
+	if err != nil {
+		return fmt.Errorf("creating client with connection: %w", err)
+	}
 
 	select {
 	case <-s.closeCh:
@@ -99,4 +105,6 @@ func (s *Server) handleConnection(conn net.Conn) {
 		// if client was closed (because of error or some internal action)
 		// we just return
 	}
+
+	return nil
 }
