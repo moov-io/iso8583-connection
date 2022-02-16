@@ -3,6 +3,7 @@ package client
 import (
 	"bufio"
 	"bytes"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -61,10 +62,12 @@ type Client struct {
 	stan int32
 }
 
-func NewClient(spec *iso8583.MessageSpec, mlReader MessageLengthReader, mlWriter MessageLengthWriter, options ...Option) *Client {
+func NewClient(spec *iso8583.MessageSpec, mlReader MessageLengthReader, mlWriter MessageLengthWriter, options ...Option) (*Client, error) {
 	opts := GetDefaultOptions()
 	for _, opt := range options {
-		opt(&opts)
+		if err := opt(&opts); err != nil {
+			return nil, fmt.Errorf("setting client option: %v %w", opt, err)
+		}
 	}
 
 	return &Client{
@@ -75,25 +78,36 @@ func NewClient(spec *iso8583.MessageSpec, mlReader MessageLengthReader, mlWriter
 		spec:               spec,
 		readMessageLength:  mlReader,
 		writeMessageLength: mlWriter,
-	}
+	}, nil
 }
 
 // NewClientWithConn - in addition to NewClient args, it accepts conn which
 // will be used insde client. Returned client is ready to be used for message
 // sending and receiving
-func NewClientWithConn(conn io.ReadWriteCloser, spec *iso8583.MessageSpec, mlReader MessageLengthReader, mlWriter MessageLengthWriter, options ...Option) *Client {
-	c := NewClient(spec, mlReader, mlWriter, options...)
+func NewClientWithConn(conn io.ReadWriteCloser, spec *iso8583.MessageSpec, mlReader MessageLengthReader, mlWriter MessageLengthWriter, options ...Option) (*Client, error) {
+	c, err := NewClient(spec, mlReader, mlWriter, options...)
+	if err != nil {
+		return nil, fmt.Errorf("creating client: %w", err)
+	}
 	c.conn = conn
 	c.run()
-	return c
+	return c, nil
 }
 
 // Connect connects client to the server by provided addr
 func (c *Client) Connect(addr string) error {
-	conn, err := net.Dial("tcp", addr)
+	var conn net.Conn
+	var err error
+
+	if c.opts.TLSConfig != nil {
+		conn, err = tls.Dial("tcp", addr, c.opts.TLSConfig)
+	} else {
+		conn, err = net.Dial("tcp", addr)
+	}
 	if err != nil {
 		return fmt.Errorf("connecting to server: %w", err)
 	}
+
 	c.conn = conn
 
 	c.run()
