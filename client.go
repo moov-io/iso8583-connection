@@ -243,10 +243,11 @@ func (c *Client) Send(message *iso8583.Message) (*iso8583.Message, error) {
 	case resp = <-req.replyCh:
 	case err = <-req.errCh:
 	case <-time.After(c.Opts.SendTimeout):
-		// remove reply channel, so readLoop will never write into it
-		// c.pendingRequestsMu.Lock()
-		// delete(c.respMap, req.requestID)
-		// c.pendingRequestsMu.Unlock()
+		// clear reply channel since this current req lifecycle will no longer
+		// be in use after timeout
+		c.pendingRequestsMu.Lock()
+		delete(c.respMap, req.requestID)
+		c.pendingRequestsMu.Unlock()
 
 		err = ErrSendTimeout
 	}
