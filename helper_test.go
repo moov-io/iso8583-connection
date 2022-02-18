@@ -62,6 +62,12 @@ var testSpec *iso8583.MessageSpec = &iso8583.MessageSpec{
 			Enc:         encoding.ASCII,
 			Pref:        prefix.ASCII.LL,
 		}),
+		7: field.NewString(&field.Spec{
+			Length:      10,
+			Description: "Transmission Date & Time",
+			Enc:         encoding.ASCII,
+			Pref:        prefix.ASCII.Fixed,
+		}),
 		11: field.NewString(&field.Spec{
 			Length:      6,
 			Description: "Systems Trace Audit Number (STAN)",

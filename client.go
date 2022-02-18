@@ -21,6 +21,8 @@ var (
 	ErrSendTimeout      = errors.New("message send timeout")
 )
 
+const DefaultTransmissionDateTimeFormat string = "0102150405" // YYMMDDhhmmss
+
 // MessageLengthReader reads message header from the r and returns message length
 type MessageLengthReader func(r io.Reader) (int, error)
 
@@ -180,6 +182,10 @@ func (c *Client) Send(message *iso8583.Message) (*iso8583.Message, error) {
 		return nil, fmt.Errorf("setting message STAN: %w", err)
 	}
 
+	if err := c.setMessageTransmissionTime(message); err != nil {
+		return nil, fmt.Errorf("setting message transmission time: %w", err)
+	}
+
 	var buf bytes.Buffer
 	packed, err := message.Pack()
 	if err != nil {
@@ -284,40 +290,57 @@ func (c *Client) Reply(message *iso8583.Message) error {
 	return err
 }
 
-// setMessageSTAN sets STAN if message does not have it
+// setMessageSTAN sets STAN if message does not have it.
 func (c *Client) setMessageSTAN(message *iso8583.Message) error {
-	stan, err := message.GetString(11)
-	if err != nil {
-		return fmt.Errorf("getting STAN (field 11) of the message: %w", err)
+	stan, _ := message.GetString(11)
+	if stan != "" {
+		return nil
 	}
 
 	// no STAN was provided, generate a new one
-	if stan == "" {
-		stan = c.getSTAN()
-	}
-
-	err = message.Field(11, stan)
-	if err != nil {
+	stan = c.getSTAN()
+	if err := message.Field(11, stan); err != nil {
 		return fmt.Errorf("setting STAN (field 11): %s of the message: %w", stan, err)
 	}
 
 	return nil
 }
 
-// request id should be generated using different message fields (STAN, RRN, etc.)
-// each request/response should be uniquely linked to the message
-// current assumption is that STAN should be enough for this
-// but because STAN is 6 digits, there is no way we can process millions transactions
-// per second using STAN only
-// More options for STAN:
-// * match by RRN + STAN
-// * it's typically unique in 24h and usually scoped to TID and transmission time fields.
+// setMessageTransmissionTime sets the transmission time if the message does not have it.
+func (c *Client) setMessageTransmissionTime(message *iso8583.Message) error {
+	tt, _ := message.GetString(7)
+	if tt != "" {
+		return nil
+	}
+
+	// no time was provided, generate a new one
+	tt = time.Now().UTC().Format(DefaultTransmissionDateTimeFormat)
+	if err := message.Field(7, tt); err != nil {
+		return fmt.Errorf("setting transmission time (field 7): %s of the message: %w", tt, err)
+	}
+
+	return nil
+}
+
+// requestID is a unique identifier for a request.
+// responses from the server are not guranteed to return in order so we must
+// have an id to reference the original req. built from stan and datetime
 func requestID(message *iso8583.Message) (string, error) {
+	if message == nil {
+		return "", fmt.Errorf("message required")
+	}
+
+	t, err := message.GetString(7)
+	if err != nil {
+		return "", fmt.Errorf("getting transmission date and time (field 7) of the message: %w", err)
+	}
+
 	stan, err := message.GetString(11)
 	if err != nil {
 		return "", fmt.Errorf("getting STAN (field 11) of the message: %w", err)
 	}
-	return stan, nil
+
+	return stan + t, nil
 }
 
 // writeLoop reads requests from the channel and writes request message into

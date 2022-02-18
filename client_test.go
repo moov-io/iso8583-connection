@@ -373,6 +373,8 @@ func benchmarkSend(m int, b *testing.B) {
 // send/receive m messages
 func processMessages(b *testing.B, m int, c *client.Client) {
 	var wg sync.WaitGroup
+	var gerr error
+
 	for i := 0; i < m; i++ {
 		wg.Add(1)
 		go func() {
@@ -385,9 +387,14 @@ func processMessages(b *testing.B, m int, c *client.Client) {
 
 			_, err := c.Send(message)
 			if err != nil {
-				b.Fatal("sending message: ", err)
+				gerr = err
+				return
 			}
 		}()
 	}
+
 	wg.Wait()
+	if gerr != nil {
+		b.Fatal("sending message: ", gerr)
+	}
 }
