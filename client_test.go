@@ -58,6 +58,14 @@ func TestClient_Connect(t *testing.T) {
 
 		require.NoError(t, c.Close())
 	})
+
+	t.Run("no panic when Close before Connect", func(t *testing.T) {
+		// our client can connect to the server
+		c, err := client.NewClient(testSpec, readMessageLength, writeMessageLength)
+		require.NoError(t, err)
+
+		require.NoError(t, c.Close())
+	})
 }
 
 func TestClient_Send(t *testing.T) {
