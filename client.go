@@ -140,7 +140,13 @@ func (c *Client) Close() error {
 
 	close(c.done)
 
-	return c.conn.Close()
+	if c.conn != nil {
+		err := c.conn.Close()
+		if err != nil {
+			return fmt.Errorf("closing connection: %w", err)
+		}
+	}
+	return nil
 }
 
 func (c *Client) Done() <-chan struct{} {
