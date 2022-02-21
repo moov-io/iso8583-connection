@@ -20,10 +20,10 @@ func TestClient_Connect(t *testing.T) {
 		defer server.Close()
 
 		// our client can connect to the server
-		c, err := client.NewClient(testSpec, readMessageLength, writeMessageLength)
+		c, err := client.NewClient(server.Addr, testSpec, readMessageLength, writeMessageLength)
 		require.NoError(t, err)
 
-		err = c.Connect(server.Addr)
+		err = c.Connect()
 		require.NoError(t, err)
 		require.NoError(t, c.Close())
 	})
@@ -45,6 +45,7 @@ func TestClient_Connect(t *testing.T) {
 		}()
 
 		c, err := client.NewClient(
+			ln.Addr().String(),
 			testSpec,
 			readMessageLength,
 			writeMessageLength,
@@ -53,7 +54,7 @@ func TestClient_Connect(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		err = c.Connect(ln.Addr().String())
+		err = c.Connect()
 		require.NoError(t, err)
 
 		require.NoError(t, c.Close())
@@ -61,7 +62,7 @@ func TestClient_Connect(t *testing.T) {
 
 	t.Run("no panic when Close before Connect", func(t *testing.T) {
 		// our client can connect to the server
-		c, err := client.NewClient(testSpec, readMessageLength, writeMessageLength)
+		c, err := client.NewClient("", testSpec, readMessageLength, writeMessageLength)
 		require.NoError(t, err)
 
 		require.NoError(t, c.Close())
@@ -74,10 +75,10 @@ func TestClient_Send(t *testing.T) {
 	defer server.Close()
 
 	t.Run("sends messages to server and receives responses", func(t *testing.T) {
-		c, err := client.NewClient(testSpec, readMessageLength, writeMessageLength)
+		c, err := client.NewClient(server.Addr, testSpec, readMessageLength, writeMessageLength)
 		require.NoError(t, err)
 
-		err = c.Connect(server.Addr)
+		err = c.Connect()
 		require.NoError(t, err)
 
 		// network management message
@@ -98,10 +99,10 @@ func TestClient_Send(t *testing.T) {
 	})
 
 	t.Run("it returns ErrConnectionClosed when Close was called", func(t *testing.T) {
-		c, err := client.NewClient(testSpec, readMessageLength, writeMessageLength)
+		c, err := client.NewClient(server.Addr, testSpec, readMessageLength, writeMessageLength)
 		require.NoError(t, err)
 
-		err = c.Connect(server.Addr)
+		err = c.Connect()
 		require.NoError(t, err)
 
 		// network management message
@@ -116,10 +117,10 @@ func TestClient_Send(t *testing.T) {
 	})
 
 	t.Run("it returns ErrSendTimeout when response was not received during SendTimeout time", func(t *testing.T) {
-		c, err := client.NewClient(testSpec, readMessageLength, writeMessageLength, client.SendTimeout(100*time.Millisecond))
+		c, err := client.NewClient(server.Addr, testSpec, readMessageLength, writeMessageLength, client.SendTimeout(100*time.Millisecond))
 		require.NoError(t, err)
 
-		err = c.Connect(server.Addr)
+		err = c.Connect()
 		require.NoError(t, err)
 		defer c.Close()
 
@@ -143,10 +144,10 @@ func TestClient_Send(t *testing.T) {
 	})
 
 	t.Run("pending requests should complete after Close was called", func(t *testing.T) {
-		c, err := client.NewClient(testSpec, readMessageLength, writeMessageLength)
+		c, err := client.NewClient(server.Addr, testSpec, readMessageLength, writeMessageLength)
 		require.NoError(t, err)
 
-		err = c.Connect(server.Addr)
+		err = c.Connect()
 		require.NoError(t, err)
 		defer c.Close()
 
@@ -184,10 +185,10 @@ func TestClient_Send(t *testing.T) {
 	})
 
 	t.Run("responses received asynchronously", func(t *testing.T) {
-		c, err := client.NewClient(testSpec, readMessageLength, writeMessageLength)
+		c, err := client.NewClient(server.Addr, testSpec, readMessageLength, writeMessageLength)
 		require.NoError(t, err)
 
-		err = c.Connect(server.Addr)
+		err = c.Connect()
 		require.NoError(t, err)
 		defer c.Close()
 
@@ -279,13 +280,13 @@ func TestClient_Send(t *testing.T) {
 			require.Equal(t, "0810", mti)
 		}
 
-		c, err := client.NewClient(testSpec, readMessageLength, writeMessageLength,
+		c, err := client.NewClient(server.Addr, testSpec, readMessageLength, writeMessageLength,
 			client.IdleTime(50*time.Millisecond),
 			client.PingHandler(pingHandler),
 		)
 		require.NoError(t, err)
 
-		err = c.Connect(server.Addr)
+		err = c.Connect()
 		require.NoError(t, err)
 		defer c.Close()
 
@@ -312,13 +313,13 @@ func TestClient_Send(t *testing.T) {
 			require.Equal(t, CardForDelayedResponse, pan)
 		}
 
-		c, err := client.NewClient(testSpec, readMessageLength, writeMessageLength,
+		c, err := client.NewClient(server.Addr, testSpec, readMessageLength, writeMessageLength,
 			client.SendTimeout(100*time.Millisecond),
 			client.UnmatchedMessageHandler(unmatchedMessageHandler),
 		)
 		require.NoError(t, err)
 
-		err = c.Connect(server.Addr)
+		err = c.Connect()
 		require.NoError(t, err)
 		defer c.Close()
 
@@ -339,6 +340,25 @@ func TestClient_Send(t *testing.T) {
 	})
 }
 
+func TestClient_SetOptions(t *testing.T) {
+	c, err := client.NewClient("", testSpec, readMessageLength, writeMessageLength)
+	require.NoError(t, err)
+	require.NotNil(t, c)
+
+	require.Nil(t, c.Opts.PingHandler)
+	require.Nil(t, c.Opts.UnmatchedMessageHandler)
+	require.Nil(t, c.Opts.TLSConfig)
+
+	require.NoError(t, c.SetOptions(client.UnmatchedMessageHandler(func(c *client.Client, m *iso8583.Message) {})))
+	require.NotNil(t, c.Opts.UnmatchedMessageHandler)
+
+	require.NoError(t, c.SetOptions(client.PingHandler(func(c *client.Client) {})))
+	require.NotNil(t, c.Opts.PingHandler)
+
+	require.NoError(t, c.SetOptions(client.RootCAs("./testdata/ca.crt")))
+	require.NotNil(t, c.Opts.TLSConfig)
+}
+
 func BenchmarkSend100(b *testing.B) { benchmarkSend(100, b) }
 
 func BenchmarkSend1000(b *testing.B) { benchmarkSend(1000, b) }
@@ -355,12 +375,12 @@ func benchmarkSend(m int, b *testing.B) {
 		b.Fatal("starting server: ", err)
 	}
 
-	c, err := client.NewClient(testSpec, readMessageLength, writeMessageLength)
+	c, err := client.NewClient(server.Addr, testSpec, readMessageLength, writeMessageLength)
 	if err != nil {
 		b.Fatal("creating client: ", err)
 	}
 
-	err = c.Connect(server.Addr)
+	err = c.Connect()
 	if err != nil {
 		b.Fatal("connecting to the server: ", err)
 	}

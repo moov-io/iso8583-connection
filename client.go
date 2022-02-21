@@ -32,7 +32,8 @@ type MessageLengthWriter func(w io.Writer, length int) (int, error)
 // Client represents an ISO 8583 Client. Client may be used
 // by multiple goroutines simultaneously.
 type Client struct {
-	opts       Options
+	addr       string
+	Opts       Options
 	conn       io.ReadWriteCloser
 	requestsCh chan request
 	done       chan struct{}
@@ -64,7 +65,7 @@ type Client struct {
 	stan int32
 }
 
-func NewClient(spec *iso8583.MessageSpec, mlReader MessageLengthReader, mlWriter MessageLengthWriter, options ...Option) (*Client, error) {
+func NewClient(addr string, spec *iso8583.MessageSpec, mlReader MessageLengthReader, mlWriter MessageLengthWriter, options ...Option) (*Client, error) {
 	opts := GetDefaultOptions()
 	for _, opt := range options {
 		if err := opt(&opts); err != nil {
@@ -73,7 +74,8 @@ func NewClient(spec *iso8583.MessageSpec, mlReader MessageLengthReader, mlWriter
 	}
 
 	return &Client{
-		opts:               opts,
+		addr:               addr,
+		Opts:               opts,
 		requestsCh:         make(chan request),
 		done:               make(chan struct{}),
 		respMap:            make(map[string]chan *iso8583.Message),
@@ -87,7 +89,7 @@ func NewClient(spec *iso8583.MessageSpec, mlReader MessageLengthReader, mlWriter
 // will be used insde client. Returned client is ready to be used for message
 // sending and receiving
 func NewClientWithConn(conn io.ReadWriteCloser, spec *iso8583.MessageSpec, mlReader MessageLengthReader, mlWriter MessageLengthWriter, options ...Option) (*Client, error) {
-	c, err := NewClient(spec, mlReader, mlWriter, options...)
+	c, err := NewClient("", spec, mlReader, mlWriter, options...)
 	if err != nil {
 		return nil, fmt.Errorf("creating client: %w", err)
 	}
@@ -96,18 +98,29 @@ func NewClientWithConn(conn io.ReadWriteCloser, spec *iso8583.MessageSpec, mlRea
 	return c, nil
 }
 
+// SetOptions - sets client options
+func (c *Client) SetOptions(options ...Option) error {
+	for _, opt := range options {
+		if err := opt(&c.Opts); err != nil {
+			return fmt.Errorf("setting client option: %v %w", opt, err)
+		}
+	}
+
+	return nil
+}
+
 // Connect connects client to the server by provided addr
-func (c *Client) Connect(addr string) error {
+func (c *Client) Connect() error {
 	var conn net.Conn
 	var err error
 
-	if c.opts.TLSConfig != nil {
-		conn, err = tls.Dial("tcp", addr, c.opts.TLSConfig)
+	if c.Opts.TLSConfig != nil {
+		conn, err = tls.Dial("tcp", c.addr, c.Opts.TLSConfig)
 	} else {
-		conn, err = net.Dial("tcp", addr)
+		conn, err = net.Dial("tcp", c.addr)
 	}
 	if err != nil {
-		return fmt.Errorf("connecting to server: %w", err)
+		return fmt.Errorf("connecting to server %s: %w", c.addr, err)
 	}
 
 	c.conn = conn
@@ -229,7 +242,7 @@ func (c *Client) Send(message *iso8583.Message) (*iso8583.Message, error) {
 	select {
 	case resp = <-req.replyCh:
 	case err = <-req.errCh:
-	case <-time.After(c.opts.SendTimeout):
+	case <-time.After(c.Opts.SendTimeout):
 		// remove reply channel, so readLoop will never write into it
 		// c.pendingRequestsMu.Lock()
 		// delete(c.respMap, req.requestID)
@@ -289,7 +302,7 @@ func (c *Client) Reply(message *iso8583.Message) error {
 
 	select {
 	case err = <-req.errCh:
-	case <-time.After(c.opts.SendTimeout):
+	case <-time.After(c.Opts.SendTimeout):
 		err = ErrSendTimeout
 	}
 
@@ -377,10 +390,10 @@ func (c *Client) writeLoop() {
 			if req.replyCh == nil {
 				req.errCh <- nil
 			}
-		case <-time.After(c.opts.IdleTime):
+		case <-time.After(c.Opts.IdleTime):
 			// if no message was sent during idle time, we have to send ping message
-			if c.opts.PingHandler != nil {
-				go c.opts.PingHandler(c)
+			if c.Opts.PingHandler != nil {
+				go c.Opts.PingHandler(c)
 			}
 		case <-c.done:
 			return
@@ -451,8 +464,8 @@ func (c *Client) handleResponse(rawMessage []byte) {
 	if replyCh, found := c.respMap[reqID]; found {
 		replyCh <- message
 		delete(c.respMap, reqID)
-	} else if c.opts.UnmatchedMessageHandler != nil {
-		go c.opts.UnmatchedMessageHandler(c, message)
+	} else if c.Opts.UnmatchedMessageHandler != nil {
+		go c.Opts.UnmatchedMessageHandler(c, message)
 	} else {
 		log.Printf("can't find request for ID: %s", reqID)
 	}
