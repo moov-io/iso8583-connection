@@ -32,6 +32,7 @@ type MessageLengthWriter func(w io.Writer, length int) (int, error)
 // Client represents an ISO 8583 Client. Client may be used
 // by multiple goroutines simultaneously.
 type Client struct {
+	addr       string
 	Opts       Options
 	conn       io.ReadWriteCloser
 	requestsCh chan request
@@ -64,7 +65,7 @@ type Client struct {
 	stan int32
 }
 
-func NewClient(spec *iso8583.MessageSpec, mlReader MessageLengthReader, mlWriter MessageLengthWriter, options ...Option) (*Client, error) {
+func NewClient(addr string, spec *iso8583.MessageSpec, mlReader MessageLengthReader, mlWriter MessageLengthWriter, options ...Option) (*Client, error) {
 	opts := GetDefaultOptions()
 	for _, opt := range options {
 		if err := opt(&opts); err != nil {
@@ -73,6 +74,7 @@ func NewClient(spec *iso8583.MessageSpec, mlReader MessageLengthReader, mlWriter
 	}
 
 	return &Client{
+		addr:               addr,
 		Opts:               opts,
 		requestsCh:         make(chan request),
 		done:               make(chan struct{}),
@@ -87,7 +89,7 @@ func NewClient(spec *iso8583.MessageSpec, mlReader MessageLengthReader, mlWriter
 // will be used insde client. Returned client is ready to be used for message
 // sending and receiving
 func NewClientWithConn(conn io.ReadWriteCloser, spec *iso8583.MessageSpec, mlReader MessageLengthReader, mlWriter MessageLengthWriter, options ...Option) (*Client, error) {
-	c, err := NewClient(spec, mlReader, mlWriter, options...)
+	c, err := NewClient("", spec, mlReader, mlWriter, options...)
 	if err != nil {
 		return nil, fmt.Errorf("creating client: %w", err)
 	}
@@ -108,17 +110,17 @@ func (c *Client) SetOptions(options ...Option) error {
 }
 
 // Connect connects client to the server by provided addr
-func (c *Client) Connect(addr string) error {
+func (c *Client) Connect() error {
 	var conn net.Conn
 	var err error
 
 	if c.Opts.TLSConfig != nil {
-		conn, err = tls.Dial("tcp", addr, c.Opts.TLSConfig)
+		conn, err = tls.Dial("tcp", c.addr, c.Opts.TLSConfig)
 	} else {
-		conn, err = net.Dial("tcp", addr)
+		conn, err = net.Dial("tcp", c.addr)
 	}
 	if err != nil {
-		return fmt.Errorf("connecting to server: %w", err)
+		return fmt.Errorf("connecting to server %s: %w", c.addr, err)
 	}
 
 	c.conn = conn
