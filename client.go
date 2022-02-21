@@ -249,14 +249,12 @@ func (c *Client) Send(message *iso8583.Message) (*iso8583.Message, error) {
 	case resp = <-req.replyCh:
 	case err = <-req.errCh:
 	case <-time.After(c.Opts.SendTimeout):
-		// clear reply channel since this current req lifecycle will no longer
-		// be in use after timeout
-		c.pendingRequestsMu.Lock()
-		delete(c.respMap, req.requestID)
-		c.pendingRequestsMu.Unlock()
-
 		err = ErrSendTimeout
 	}
+
+	c.pendingRequestsMu.Lock()
+	delete(c.respMap, req.requestID)
+	c.pendingRequestsMu.Unlock()
 
 	return resp, err
 }
@@ -386,13 +384,6 @@ func (c *Client) writeLoop() {
 			if err != nil {
 				req.errCh <- err
 
-				// reply() calls don't have response maps
-				if req.replyCh != nil {
-					c.pendingRequestsMu.Lock()
-					delete(c.respMap, req.requestID)
-					c.pendingRequestsMu.Unlock()
-				}
-
 				// passed message to errCh, we can break from this switch
 				break
 			}
@@ -477,7 +468,6 @@ func (c *Client) handleResponse(rawMessage []byte) {
 	c.pendingRequestsMu.Lock()
 	if replyCh, found := c.respMap[reqID]; found {
 		replyCh <- message
-		delete(c.respMap, reqID)
 	} else if c.Opts.UnmatchedMessageHandler != nil {
 		go c.Opts.UnmatchedMessageHandler(c, message)
 	} else {

@@ -346,7 +346,7 @@ func TestClient_Send(t *testing.T) {
 		c, err := client.NewClientWithConn(closer, testSpec, readMessageLength, writeMessageLength, client.SendTimeout(100*time.Millisecond))
 		require.NoError(t, err)
 
-		err = c.Connect(server.Addr)
+		err = c.Connect()
 		require.NoError(t, err)
 		defer c.Close()
 
