@@ -114,11 +114,17 @@ func (c *Client) Connect() error {
 	var conn net.Conn
 	var err error
 
+	if c.conn != nil {
+		c.run()
+		return nil
+	}
+
 	if c.Opts.TLSConfig != nil {
 		conn, err = tls.Dial("tcp", c.addr, c.Opts.TLSConfig)
 	} else {
 		conn, err = net.Dial("tcp", c.addr)
 	}
+
 	if err != nil {
 		return fmt.Errorf("connecting to server %s: %w", c.addr, err)
 	}
@@ -379,9 +385,16 @@ func (c *Client) writeLoop() {
 			_, err := c.conn.Write([]byte(req.rawMessage))
 			if err != nil {
 				req.errCh <- err
-				c.pendingRequestsMu.Lock()
-				delete(c.respMap, req.requestID)
-				c.pendingRequestsMu.Unlock()
+
+				// reply() calls don't have response maps
+				if req.replyCh != nil {
+					c.pendingRequestsMu.Lock()
+					delete(c.respMap, req.requestID)
+					c.pendingRequestsMu.Unlock()
+				}
+
+				// passed message to errCh, we can break from this switch
+				break
 			}
 
 			// for replies (requests without replyCh) we just

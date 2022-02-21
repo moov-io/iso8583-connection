@@ -1,6 +1,7 @@
 package client_test
 
 import (
+	"io"
 	"net"
 	"net/http"
 	"sync"
@@ -338,7 +339,40 @@ func TestClient_Send(t *testing.T) {
 		// we should not panic :)
 		time.Sleep(1 * time.Second)
 	})
+
+	t.Run("should allow setting a custom connection without overwriting it in connect", func(t *testing.T) {
+		closer := &TrackingRWCloser{}
+
+		c, err := client.NewClientWithConn(closer, testSpec, readMessageLength, writeMessageLength, client.SendTimeout(100*time.Millisecond))
+		require.NoError(t, err)
+
+		err = c.Connect(server.Addr)
+		require.NoError(t, err)
+		defer c.Close()
+
+		msg := iso8583.NewMessage(testSpec)
+
+		c.Reply(msg)
+
+		require.Equal(t, closer.Used, true, "client didn't use custom connection")
+	})
 }
+
+type TrackingRWCloser struct{ Used bool }
+
+func (m *TrackingRWCloser) Write(p []byte) (n int, err error) {
+	m.Used = true
+	return 0, nil
+}
+func (m *TrackingRWCloser) Read(p []byte) (n int, err error) {
+	return 0, nil
+}
+func (m *TrackingRWCloser) Close() error {
+	return nil
+}
+
+// interface guard
+var _ io.ReadWriteCloser = (*TrackingRWCloser)(nil)
 
 func TestClient_SetOptions(t *testing.T) {
 	c, err := client.NewClient("", testSpec, readMessageLength, writeMessageLength)
