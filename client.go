@@ -399,8 +399,6 @@ func (c *Client) handleResponse(rawMessage []byte) {
 	message := iso8583.NewMessage(c.spec)
 	err := message.Unpack(rawMessage)
 	if err != nil {
-		fmt.Printf("rawMessage = [%+v]\n", rawMessage)
-		fmt.Printf("string(rawMessage) = [%s]\n", string(rawMessage))
 		log.Printf("unpacking message: %v", err)
 		return
 	}
