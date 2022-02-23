@@ -1,6 +1,7 @@
 package client_test
 
 import (
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -9,10 +10,33 @@ import (
 	"time"
 
 	"github.com/moov-io/iso8583"
+	"github.com/moov-io/iso8583/field"
 	client "github.com/moovfinancial/iso8583-client"
 	"github.com/moovfinancial/iso8583-client/server"
 	"github.com/stretchr/testify/require"
 )
+
+type baseFields struct {
+	MTI                  *field.String `index:"0"`
+	PrimaryAccountNumber *field.String `index:"2"`
+	STAN                 *field.String `index:"11"`
+}
+
+var stan int
+var stanMu sync.Mutex
+
+func getSTAN() string {
+	stanMu.Lock()
+	defer stanMu.Unlock()
+
+	stan++
+
+	if stan > 999999 {
+		stan = 1
+	}
+
+	return fmt.Sprintf("%06d", stan)
+}
 
 func TestClient_Connect(t *testing.T) {
 	t.Run("unsecure connection", func(t *testing.T) {
@@ -84,8 +108,12 @@ func TestClient_Send(t *testing.T) {
 
 		// network management message
 		message := iso8583.NewMessage(testSpec)
-		message.MTI("0800")
-		message.Field(2, CardForDelayedResponse)
+		err = message.Marshal(baseFields{
+			MTI:                  field.NewStringValue("0800"),
+			PrimaryAccountNumber: field.NewStringValue(CardForDelayedResponse),
+			STAN:                 field.NewStringValue(getSTAN()),
+		})
+		require.NoError(t, err)
 
 		// we can send iso message to the server
 		response, err := c.Send(message)
@@ -108,8 +136,12 @@ func TestClient_Send(t *testing.T) {
 
 		// network management message
 		message := iso8583.NewMessage(testSpec)
-		message.MTI("0800")
-		message.Field(2, CardForDelayedResponse)
+		err = message.Marshal(baseFields{
+			MTI:                  field.NewStringValue("0800"),
+			PrimaryAccountNumber: field.NewStringValue(CardForDelayedResponse),
+			STAN:                 field.NewStringValue(getSTAN()),
+		})
+		require.NoError(t, err)
 
 		require.NoError(t, c.Close())
 
@@ -127,21 +159,45 @@ func TestClient_Send(t *testing.T) {
 
 		// regular network management message
 		message := iso8583.NewMessage(testSpec)
-		message.MTI("0800")
+		err = message.Marshal(baseFields{
+			MTI:  field.NewStringValue("0800"),
+			STAN: field.NewStringValue(getSTAN()),
+		})
+		require.NoError(t, err)
 
 		_, err = c.Send(message)
 		require.NoError(t, err)
 
 		// network management message to test timeout
 		message = iso8583.NewMessage(testSpec)
-		message.MTI("0800")
-
-		// using 777 value for the field, we tell server
-		// to sleep for 500ms when process the message
-		require.NoError(t, message.Field(2, CardForDelayedResponse))
+		err = message.Marshal(baseFields{
+			MTI:                  field.NewStringValue("0800"),
+			PrimaryAccountNumber: field.NewStringValue(CardForDelayedResponse),
+			STAN:                 field.NewStringValue(getSTAN()),
+		})
+		require.NoError(t, err)
 
 		_, err = c.Send(message)
 		require.Equal(t, client.ErrSendTimeout, err)
+	})
+
+	t.Run("it returns error when message does not have STAN", func(t *testing.T) {
+		c, err := client.NewClient(server.Addr, testSpec, readMessageLength, writeMessageLength, client.SendTimeout(100*time.Millisecond))
+		require.NoError(t, err)
+
+		err = c.Connect()
+		require.NoError(t, err)
+		defer c.Close()
+
+		// regular network management message
+		message := iso8583.NewMessage(testSpec)
+		err = message.Marshal(baseFields{
+			MTI: field.NewStringValue("0800"),
+		})
+		require.NoError(t, err)
+
+		_, err = c.Send(message)
+		require.EqualError(t, err, "creating request ID: STAN is missing")
 	})
 
 	t.Run("pending requests should complete after Close was called", func(t *testing.T) {
@@ -162,11 +218,12 @@ func TestClient_Send(t *testing.T) {
 
 				// network management message
 				message := iso8583.NewMessage(testSpec)
-				message.MTI("0800")
-
-				// using 777 value for the field, we tell server
-				// to sleep for 500ms when process the message
-				require.NoError(t, message.Field(2, CardForDelayedResponse))
+				err := message.Marshal(baseFields{
+					MTI:                  field.NewStringValue("0800"),
+					PrimaryAccountNumber: field.NewStringValue(CardForDelayedResponse),
+					STAN:                 field.NewStringValue(getSTAN()),
+				})
+				require.NoError(t, err)
 
 				response, err := c.Send(message)
 				require.NoError(t, err)
@@ -209,11 +266,13 @@ func TestClient_Send(t *testing.T) {
 			}()
 
 			message := iso8583.NewMessage(testSpec)
-			message.MTI("0800")
+			err := message.Marshal(baseFields{
+				MTI:                  field.NewStringValue("0800"),
+				PrimaryAccountNumber: field.NewStringValue(CardForDelayedResponse),
+				STAN:                 field.NewStringValue(getSTAN()),
+			})
+			require.NoError(t, err)
 
-			// using 777 value for the field, we tell server
-			// to sleep for 500ms when process the message
-			require.NoError(t, message.Field(2, CardForDelayedResponse))
 			response, err := c.Send(message)
 			require.NoError(t, err)
 
@@ -235,7 +294,11 @@ func TestClient_Send(t *testing.T) {
 			time.Sleep(100 * time.Millisecond)
 
 			message := iso8583.NewMessage(testSpec)
-			message.MTI("0800")
+			err := message.Marshal(baseFields{
+				MTI:  field.NewStringValue("0800"),
+				STAN: field.NewStringValue(getSTAN()),
+			})
+			require.NoError(t, err)
 
 			response, err := c.Send(message)
 			require.NoError(t, err)
@@ -270,8 +333,12 @@ func TestClient_Send(t *testing.T) {
 
 		pingHandler := func(c *client.Client) {
 			pingMessage := iso8583.NewMessage(testSpec)
-			pingMessage.MTI("0800")
-			pingMessage.Field(2, CardForPingCounter)
+			err := pingMessage.Marshal(baseFields{
+				MTI:                  field.NewStringValue("0800"),
+				PrimaryAccountNumber: field.NewStringValue(CardForPingCounter),
+				STAN:                 field.NewStringValue(getSTAN()),
+			})
+			require.NoError(t, err)
 
 			response, err := c.Send(pingMessage)
 			require.NoError(t, err)
@@ -326,11 +393,12 @@ func TestClient_Send(t *testing.T) {
 
 		// network management message to test timeout
 		message := iso8583.NewMessage(testSpec)
-		message.MTI("0800")
-
-		// using 777 value for the field, we tell server
-		// to sleep for 500ms when process the message
-		require.NoError(t, message.Field(2, CardForDelayedResponse))
+		err = message.Marshal(baseFields{
+			MTI:                  field.NewStringValue("0800"),
+			PrimaryAccountNumber: field.NewStringValue(CardForDelayedResponse),
+			STAN:                 field.NewStringValue(getSTAN()),
+		})
+		require.NoError(t, err)
 
 		_, err = c.Send(message)
 		require.Equal(t, client.ErrSendTimeout, err)
