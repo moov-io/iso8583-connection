@@ -120,14 +120,14 @@ Here are the latest results on MacBook Pro:
 ➜ go test -bench=BenchmarkSend -run=XXX
 goos: darwin
 goarch: amd64
-pkg: github.com/moovfinancial/brand-client
+pkg: github.com/moovfinancial/iso8583-client
 cpu: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz
 BenchmarkSend100-12                  560           2019912 ns/op
 BenchmarkSend1000-12                  66          18435428 ns/op
 BenchmarkSend10000-12                  6         210433011 ns/op
 BenchmarkSend100000-12                 1        2471006590 ns/op
 PASS
-ok      github.com/moovfinancial/brand-client    7.784s
+ok      github.com/moovfinancial/iso8583-client    7.784s
 ```
 
 It shows that:
