@@ -60,9 +60,6 @@ type Client struct {
 
 	// user has called Close
 	closing bool
-
-	// STAN counter, max can be 999999
-	stan int32
 }
 
 func NewClient(addr string, spec *iso8583.MessageSpec, mlReader MessageLengthReader, mlWriter MessageLengthWriter, options ...Option) (*Client, error) {
@@ -199,18 +196,6 @@ func (c *Client) Send(message *iso8583.Message) (*iso8583.Message, error) {
 	}
 	c.mutex.Unlock()
 
-	// prepare message for sending
-
-	// set STAN if it's empty
-	err := c.setMessageSTAN(message)
-	if err != nil {
-		return nil, fmt.Errorf("setting message STAN: %w", err)
-	}
-
-	if err := c.setMessageTransmissionTime(message); err != nil {
-		return nil, fmt.Errorf("setting message transmission time: %w", err)
-	}
-
 	var buf bytes.Buffer
 	packed, err := message.Pack()
 	if err != nil {
@@ -231,7 +216,7 @@ func (c *Client) Send(message *iso8583.Message) (*iso8583.Message, error) {
 	// prepare request
 	reqID, err := requestID(message)
 	if err != nil {
-		return nil, fmt.Errorf("getting request ID: %w", err)
+		return nil, fmt.Errorf("creating request ID: %w", err)
 	}
 
 	req := request{
@@ -274,13 +259,6 @@ func (c *Client) Reply(message *iso8583.Message) error {
 	c.mutex.Unlock()
 
 	// prepare message for sending
-
-	// set STAN if it's empty
-	err := c.setMessageSTAN(message)
-	if err != nil {
-		return fmt.Errorf("setting message STAN: %w", err)
-	}
-
 	var buf bytes.Buffer
 	packed, err := message.Pack()
 	if err != nil {
@@ -314,38 +292,6 @@ func (c *Client) Reply(message *iso8583.Message) error {
 	return err
 }
 
-// setMessageSTAN sets STAN if message does not have it.
-func (c *Client) setMessageSTAN(message *iso8583.Message) error {
-	stan, _ := message.GetString(11)
-	if stan != "" {
-		return nil
-	}
-
-	// no STAN was provided, generate a new one
-	stan = c.getSTAN()
-	if err := message.Field(11, stan); err != nil {
-		return fmt.Errorf("setting STAN (field 11): %s of the message: %w", stan, err)
-	}
-
-	return nil
-}
-
-// setMessageTransmissionTime sets the transmission time if the message does not have it.
-func (c *Client) setMessageTransmissionTime(message *iso8583.Message) error {
-	tt, _ := message.GetString(7)
-	if tt != "" {
-		return nil
-	}
-
-	// no time was provided, generate a new one
-	tt = time.Now().UTC().Format(DefaultTransmissionDateTimeFormat)
-	if err := message.Field(7, tt); err != nil {
-		return fmt.Errorf("setting transmission time (field 7): %s of the message: %w", tt, err)
-	}
-
-	return nil
-}
-
 // requestID is a unique identifier for a request.
 // responses from the server are not guranteed to return in order so we must
 // have an id to reference the original req. built from stan and datetime
@@ -354,17 +300,16 @@ func requestID(message *iso8583.Message) (string, error) {
 		return "", fmt.Errorf("message required")
 	}
 
-	t, err := message.GetString(7)
-	if err != nil {
-		return "", fmt.Errorf("getting transmission date and time (field 7) of the message: %w", err)
-	}
-
 	stan, err := message.GetString(11)
 	if err != nil {
 		return "", fmt.Errorf("getting STAN (field 11) of the message: %w", err)
 	}
 
-	return stan + t, nil
+	if stan == "" {
+		return "", errors.New("STAN is missing")
+	}
+
+	return stan, nil
 }
 
 // writeLoop reads requests from the channel and writes request message into
@@ -460,7 +405,7 @@ func (c *Client) handleResponse(rawMessage []byte) {
 
 	reqID, err := requestID(message)
 	if err != nil {
-		log.Printf("getting request ID: %v", err)
+		log.Printf("creating request ID: %v", err)
 		return
 	}
 
@@ -474,18 +419,4 @@ func (c *Client) handleResponse(rawMessage []byte) {
 		log.Printf("can't find request for ID: %s", reqID)
 	}
 	c.pendingRequestsMu.Unlock()
-}
-
-// Assumptions:
-// * We can use the same STAN after request/response messages for such STAN were handled
-// * STAN can be incremented but it MAX is 999999 it means we can start from 0 when we reached max
-func (c *Client) getSTAN() string {
-	// TODO: maybe use own mutex
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-	c.stan++
-	if c.stan > 999999 {
-		c.stan = 0
-	}
-	return fmt.Sprintf("%06d", c.stan)
 }
