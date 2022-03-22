@@ -1,4 +1,4 @@
-# Brand ISO8583 Client
+# ISO 8583 Connection (Multiplexer)
 
 ## Configuration
 
@@ -7,13 +7,12 @@ Following options are supported:
 * SendTimeout - sets the timeout for a Send operation
 * IdleTime - sets the period of inactivity (no messages sent) after which a ping message will be sent to the server
 * PingHandler - called when no message was sent during idle time. It should be safe for concurrent use.
-* UnmatchedMessageHandler - called when a message from the server is received and no matching request for it was found. UnmatchedMessageHandler should be safe for concurrent use.
+* InboundMessageHandler - called when a message from the server is received or no matching request for the message was found. InboundMessageHandler must be safe to be called concurrenty.
 
 If you want to override default options, you can do this when creating instance of a client:
 
 ```go
-
-pingHandler := func(c *client.Client) {
+pingHandler := func(c *connection.Connection) {
 	// send ping/heartbeat message like this
 	ping := iso8583.NewMessage(brandSpec)
 	// set other fields
@@ -21,7 +20,7 @@ pingHandler := func(c *client.Client) {
 	// handle error
 }
 
-unmatchedMessageHandler := func(c *client.Client, message *iso8583.Message) {
+inboundMessageHandler := func(c *connection.Connection, message *iso8583.Message) {
 	// log received message or send a reply like this
 	mti, err := message.GetMTI()
 	// handle err
@@ -30,19 +29,20 @@ unmatchedMessageHandler := func(c *client.Client, message *iso8583.Message) {
 	switch mti {
 	case "0800":
 		echo := iso8583.NewMessage(brandSpec)
+		echo.MTI("08100")
 		// set other fields
-		response, err := c.Send(ping)
+		err := c.Reply(echo)
 		// handle error
 	default:
 		// log unrecognized message
 	}
 }
 
-c := client.NewClient(brandSpec,readMessageLength, writeMessageLength,
-	client.SendTimeout(100*time.Millisecond),
-	client.IdleTime(50*time.Millisecond),
-	client.PingHandler(pingHandler),
-	client.UnmatchedMessageHandler(unmatchedMessageHandler),
+c := connection.New("127.0.0.1:9999", brandSpec, readMessageLength, writeMessageLength,
+	connection.SendTimeout(100*time.Millisecond),
+	connection.IdleTime(50*time.Millisecond),
+	connection.PingHandler(pingHandler),
+	connection.InboundMessageHandler(inboundMessageHandler),
 )
 
 // work with the client
@@ -50,35 +50,29 @@ c := client.NewClient(brandSpec,readMessageLength, writeMessageLength,
 
 ### (m)TLS connection
 
-Configure client to use TLS during connect:
+Configure to use TLS during connect:
 
 ```go
-c, err := client.NewClient(
-	testSpec,
-	readMessageLength,
-	writeMessageLength,
+c, err := connection.New("127.0.0.1:443", testSpec, readMessageLength, writeMessageLength,
 	// if server requires client certificate (mTLS)
-	client.ClientCert("./testdata/client.crt", "./testdata/client.key"),
+	connection.ClientCert("./testdata/client.crt", "./testdata/client.key"),
 	// if you use a self signed certificate, provide root certificate
-	client.RootCAs("./testdata/ca.crt"),
+	connection.RootCAs("./testdata/ca.crt"),
 )
 // handle error
 ```
-
-
-
 
 ## Usage
 
 ```go
 // see configuration options for more details about different handlers
-c := client.NewClient(brandSpec,readMessageLength, writeMessageLength,
-	client.SendTimeout(100*time.Millisecond),
-	client.IdleTime(50*time.Millisecond),
-	client.PingHandler(pingHandler),
-	client.UnmatchedMessageHandler(unmatchedMessageHandler),
+c := connection.New("127.0.0.1:9999", brandSpec, readMessageLength, writeMessageLength,
+	connection.SendTimeout(100*time.Millisecond),
+	connection.IdleTime(50*time.Millisecond),
+	connection.PingHandler(pingHandler),
+	connection.UnmatchedMessageHandler(unmatchedMessageHandler),
 )
-err := c.Connect("127.0.0.1:3456")
+err := c.Connect()
 if err != nil {
 	// handle error
 }
@@ -90,7 +84,7 @@ message.MTI("0800")
 // ...
 
 // send message to the server
-response, err := client.Send(message)
+response, err := connection.Send(message)
 if err != nil {
 	// handle error
 }
@@ -108,7 +102,7 @@ if mti != "0810" {
 
 ## Benchmark
 
-To benchmark the client, run:
+To benchmark the connection, run:
 
 ```
 go test -bench=BenchmarkSend -run=XXX
@@ -127,7 +121,7 @@ BenchmarkSend1000-12                  66          18435428 ns/op
 BenchmarkSend10000-12                  6         210433011 ns/op
 BenchmarkSend100000-12                 1        2471006590 ns/op
 PASS
-ok      github.com/moovfinancial/iso8583-client    7.784s
+ok      github.com/moov-io/iso8583-connection    7.784s
 ```
 
 It shows that:

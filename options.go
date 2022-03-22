@@ -1,4 +1,4 @@
-package client
+package connection
 
 import (
 	"crypto/tls"
@@ -20,15 +20,15 @@ type Options struct {
 
 	// PingHandler is called when no message was sent during idle time
 	// it should be safe for concurrent use
-	PingHandler func(c *Client)
+	PingHandler func(c *Connection)
 
-	// UnmatchedMessageHandler is called when a message from the server is
+	// InboundMessageHandler is called when a message from the server is
 	// received and no matching request for it was found.
-	// UnmatchedMessageHandler should be safe for concurrent use. Use it
+	// InboundMessageHandler should be safe for concurrent use. Use it
 	// for the following use cases:
 	// * to log timed out responses
 	// * to handle network management messages (echo, heartbeat, etc.)
-	UnmatchedMessageHandler func(c *Client, message *iso8583.Message)
+	InboundMessageHandler func(c *Connection, message *iso8583.Message)
 
 	TLSConfig *tls.Config
 }
@@ -61,17 +61,17 @@ func SendTimeout(d time.Duration) Option {
 }
 
 // PingHandler sets a PingHandler option
-func PingHandler(handler func(c *Client)) Option {
+func PingHandler(handler func(c *Connection)) Option {
 	return func(o *Options) error {
 		o.PingHandler = handler
 		return nil
 	}
 }
 
-// UnmatchedMessageHandler sets an UnmatchedMessageHandler option
-func UnmatchedMessageHandler(handler func(c *Client, message *iso8583.Message)) Option {
+// InboundMessageHandler sets an InboundMessageHandler option
+func InboundMessageHandler(handler func(c *Connection, message *iso8583.Message)) Option {
 	return func(o *Options) error {
-		o.UnmatchedMessageHandler = handler
+		o.InboundMessageHandler = handler
 		return nil
 	}
 }

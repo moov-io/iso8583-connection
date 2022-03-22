@@ -1,4 +1,4 @@
-module github.com/moovfinancial/iso8583-client
+module github.com/moov-io/iso8583-connection
 
 go 1.17
 

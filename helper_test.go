@@ -1,4 +1,4 @@
-package client_test
+package connection_test
 
 import (
 	"fmt"
@@ -8,12 +8,12 @@ import (
 	"time"
 
 	"github.com/moov-io/iso8583"
+	connection "github.com/moov-io/iso8583-connection"
+	"github.com/moov-io/iso8583-connection/server"
 	"github.com/moov-io/iso8583/encoding"
 	"github.com/moov-io/iso8583/field"
 	"github.com/moov-io/iso8583/network"
 	"github.com/moov-io/iso8583/prefix"
-	client "github.com/moovfinancial/iso8583-client"
-	"github.com/moovfinancial/iso8583-client/server"
 )
 
 // here are the implementation of the provider protocol:
@@ -103,7 +103,7 @@ func NewTestServer() (*testServer, error) {
 	var srv *testServer
 
 	// define logic for our test server
-	testServerLogic := func(c *client.Client, message *iso8583.Message) {
+	testServerLogic := func(c *connection.Connection, message *iso8583.Message) {
 		mti, err := message.GetMTI()
 		if err != nil {
 			log.Printf("getting MTI: %s", err.Error())
@@ -142,7 +142,7 @@ func NewTestServer() (*testServer, error) {
 		c.Reply(message)
 	}
 
-	server := server.New(testSpec, readMessageLength, writeMessageLength, client.UnmatchedMessageHandler(testServerLogic))
+	server := server.New(testSpec, readMessageLength, writeMessageLength, connection.InboundMessageHandler(testServerLogic))
 	// start on random port
 	err := server.Start("127.0.0.1:")
 	if err != nil {
