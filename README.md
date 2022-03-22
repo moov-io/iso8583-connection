@@ -1,4 +1,4 @@
-# Brand ISO8583 Client
+# ISO 8583 Connection (Multiplexer)
 
 ## Configuration
 
@@ -29,15 +29,16 @@ inboundMessageHandler := func(c *connection.Connection, message *iso8583.Message
 	switch mti {
 	case "0800":
 		echo := iso8583.NewMessage(brandSpec)
+		echo.MTI("08100")
 		// set other fields
-		response, err := c.Send(ping)
+		err := c.Reply(echo)
 		// handle error
 	default:
 		// log unrecognized message
 	}
 }
 
-c := connection.New(brandSpec,readMessageLength, writeMessageLength,
+c := connection.New("127.0.0.1:9999", brandSpec, readMessageLength, writeMessageLength,
 	connection.SendTimeout(100*time.Millisecond),
 	connection.IdleTime(50*time.Millisecond),
 	connection.PingHandler(pingHandler),
@@ -52,32 +53,26 @@ c := connection.New(brandSpec,readMessageLength, writeMessageLength,
 Configure to use TLS during connect:
 
 ```go
-c, err := connection.New(
-	testSpec,
-	readMessageLength,
-	writeMessageLength,
+c, err := connection.New("127.0.0.1:443", testSpec, readMessageLength, writeMessageLength,
 	// if server requires client certificate (mTLS)
-	connection.ClientCert("./testdata/connection.crt", "./testdata/connection.key"),
+	connection.ClientCert("./testdata/client.crt", "./testdata/client.key"),
 	// if you use a self signed certificate, provide root certificate
 	connection.RootCAs("./testdata/ca.crt"),
 )
 // handle error
 ```
 
-
-
-
 ## Usage
 
 ```go
 // see configuration options for more details about different handlers
-c := connection.New(brandSpec,readMessageLength, writeMessageLength,
+c := connection.New("127.0.0.1:9999", brandSpec, readMessageLength, writeMessageLength,
 	connection.SendTimeout(100*time.Millisecond),
 	connection.IdleTime(50*time.Millisecond),
 	connection.PingHandler(pingHandler),
 	connection.UnmatchedMessageHandler(unmatchedMessageHandler),
 )
-err := c.Connect("127.0.0.1:3456")
+err := c.Connect()
 if err != nil {
 	// handle error
 }
