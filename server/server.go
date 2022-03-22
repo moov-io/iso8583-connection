@@ -6,16 +6,16 @@ import (
 	"sync"
 
 	"github.com/moov-io/iso8583"
-	client "github.com/moovfinancial/iso8583-client"
+	connection "github.com/moov-io/iso8583-connection"
 )
 
 // Server is a simple iso8583 server implementation currently used to test
 // iso8583-client and most probably to be used for iso8583-test-harness
 type Server struct {
-	clientOpts []client.Option
-	ln         net.Listener
-	Addr       string
-	wg         sync.WaitGroup
+	connectionOpts []connection.Option
+	ln             net.Listener
+	Addr           string
+	wg             sync.WaitGroup
 
 	closeCh chan bool
 
@@ -24,17 +24,17 @@ type Server struct {
 
 	// readMessageLength is the function that reads message length header
 	// from the connection, decodes and returns message length
-	readMessageLength client.MessageLengthReader
+	readMessageLength connection.MessageLengthReader
 
 	// writeMessageLength is the function that encodes message length and
 	// writes message length header into the connection
-	writeMessageLength client.MessageLengthWriter
+	writeMessageLength connection.MessageLengthWriter
 }
 
-func New(spec *iso8583.MessageSpec, mlReader client.MessageLengthReader, mlWriter client.MessageLengthWriter, clientOpts ...client.Option) *Server {
+func New(spec *iso8583.MessageSpec, mlReader connection.MessageLengthReader, mlWriter connection.MessageLengthWriter, connectionOpts ...connection.Option) *Server {
 	// automatically choose port
 	return &Server{
-		clientOpts:         clientOpts,
+		connectionOpts:     connectionOpts,
 		closeCh:            make(chan bool),
 		spec:               spec,
 		readMessageLength:  mlReader,
@@ -92,9 +92,9 @@ func (s *Server) Close() {
 }
 
 func (s *Server) handleConnection(conn net.Conn) error {
-	c, err := client.NewClientWithConn(conn, s.spec, s.readMessageLength, s.writeMessageLength, s.clientOpts...)
+	c, err := connection.NewFrom(conn, s.spec, s.readMessageLength, s.writeMessageLength, s.connectionOpts...)
 	if err != nil {
-		return fmt.Errorf("creating client with connection: %w", err)
+		return fmt.Errorf("creating connection: %w", err)
 	}
 
 	select {

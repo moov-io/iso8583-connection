@@ -1,4 +1,4 @@
-package client
+package connection
 
 import (
 	"bufio"
@@ -29,9 +29,9 @@ type MessageLengthReader func(r io.Reader) (int, error)
 // MessageLengthWriter writes message header with encoded length into w
 type MessageLengthWriter func(w io.Writer, length int) (int, error)
 
-// Client represents an ISO 8583 Client. Client may be used
+// Connection represents an ISO 8583 Connection. Connection may be used
 // by multiple goroutines simultaneously.
-type Client struct {
+type Connection struct {
 	addr       string
 	Opts       Options
 	conn       io.ReadWriteCloser
@@ -62,7 +62,8 @@ type Client struct {
 	closing bool
 }
 
-func NewClient(addr string, spec *iso8583.MessageSpec, mlReader MessageLengthReader, mlWriter MessageLengthWriter, options ...Option) (*Client, error) {
+// New creates and configures Connection. To establish network connection, call `Connect()`.
+func New(addr string, spec *iso8583.MessageSpec, mlReader MessageLengthReader, mlWriter MessageLengthWriter, options ...Option) (*Connection, error) {
 	opts := GetDefaultOptions()
 	for _, opt := range options {
 		if err := opt(&opts); err != nil {
@@ -70,7 +71,7 @@ func NewClient(addr string, spec *iso8583.MessageSpec, mlReader MessageLengthRea
 		}
 	}
 
-	return &Client{
+	return &Connection{
 		addr:               addr,
 		Opts:               opts,
 		requestsCh:         make(chan request),
@@ -82,11 +83,11 @@ func NewClient(addr string, spec *iso8583.MessageSpec, mlReader MessageLengthRea
 	}, nil
 }
 
-// NewClientWithConn - in addition to NewClient args, it accepts conn which
-// will be used insde client. Returned client is ready to be used for message
-// sending and receiving
-func NewClientWithConn(conn io.ReadWriteCloser, spec *iso8583.MessageSpec, mlReader MessageLengthReader, mlWriter MessageLengthWriter, options ...Option) (*Client, error) {
-	c, err := NewClient("", spec, mlReader, mlWriter, options...)
+// NewFrom accepts conn (net.Conn, or any io.ReadWriteCloser) which will be
+// used as a transport for the returned Connection. Returned Connection is
+// ready to be used for message sending and receiving
+func NewFrom(conn io.ReadWriteCloser, spec *iso8583.MessageSpec, mlReader MessageLengthReader, mlWriter MessageLengthWriter, options ...Option) (*Connection, error) {
+	c, err := New("", spec, mlReader, mlWriter, options...)
 	if err != nil {
 		return nil, fmt.Errorf("creating client: %w", err)
 	}
@@ -95,8 +96,8 @@ func NewClientWithConn(conn io.ReadWriteCloser, spec *iso8583.MessageSpec, mlRea
 	return c, nil
 }
 
-// SetOptions - sets client options
-func (c *Client) SetOptions(options ...Option) error {
+// SetOptions sets connection options
+func (c *Connection) SetOptions(options ...Option) error {
 	for _, opt := range options {
 		if err := opt(&c.Opts); err != nil {
 			return fmt.Errorf("setting client option: %v %w", opt, err)
@@ -106,8 +107,8 @@ func (c *Client) SetOptions(options ...Option) error {
 	return nil
 }
 
-// Connect connects client to the server by provided addr
-func (c *Client) Connect() error {
+// Connect establishes the connection to the server using configured Addr
+func (c *Connection) Connect() error {
 	var conn net.Conn
 	var err error
 
@@ -134,14 +135,14 @@ func (c *Client) Connect() error {
 }
 
 // run starts read and write loops in goroutines
-func (c *Client) run() {
+func (c *Connection) run() {
 	go c.writeLoop()
 	go c.readLoop()
 }
 
 // Close waits for pending requests to complete and then closes network
 // connection with ISO 8583 server
-func (c *Client) Close() error {
+func (c *Connection) Close() error {
 	c.mutex.Lock()
 	// if we are closing already, just return
 	if c.closing {
@@ -165,7 +166,7 @@ func (c *Client) Close() error {
 	return nil
 }
 
-func (c *Client) Done() <-chan struct{} {
+func (c *Connection) Done() <-chan struct{} {
 	return c.done
 }
 
@@ -185,7 +186,7 @@ type request struct {
 }
 
 // Send sends message and waits for the response
-func (c *Client) Send(message *iso8583.Message) (*iso8583.Message, error) {
+func (c *Connection) Send(message *iso8583.Message) (*iso8583.Message, error) {
 	c.wg.Add(1)
 	defer c.wg.Done()
 
@@ -247,7 +248,7 @@ func (c *Client) Send(message *iso8583.Message) (*iso8583.Message, error) {
 // Reply sends the message and does not wait for a reply to be received
 // any reaply received for message send using Reply will be handled with
 // unmatchedMessageHandler
-func (c *Client) Reply(message *iso8583.Message) error {
+func (c *Connection) Reply(message *iso8583.Message) error {
 	c.wg.Add(1)
 	defer c.wg.Done()
 
@@ -314,7 +315,7 @@ func requestID(message *iso8583.Message) (string, error) {
 
 // writeLoop reads requests from the channel and writes request message into
 // the socket connection. It also sends message when idle time passes
-func (c *Client) writeLoop() {
+func (c *Connection) writeLoop() {
 	for {
 		select {
 		case req := <-c.requestsCh:
@@ -355,7 +356,7 @@ func (c *Client) writeLoop() {
 
 // readLoop reads data from the socket (message length header and raw message)
 // and runs a goroutine to handle the message
-func (c *Client) readLoop() {
+func (c *Connection) readLoop() {
 	var err error
 	var messageLength int
 
@@ -394,7 +395,7 @@ func (c *Client) readLoop() {
 
 // handleResponse unpacks the message and then sends it to the reply channel
 // that corresponds to the message ID (request ID)
-func (c *Client) handleResponse(rawMessage []byte) {
+func (c *Connection) handleResponse(rawMessage []byte) {
 	// create message
 	message := iso8583.NewMessage(c.spec)
 	err := message.Unpack(rawMessage)
@@ -413,8 +414,8 @@ func (c *Client) handleResponse(rawMessage []byte) {
 	c.pendingRequestsMu.Lock()
 	if replyCh, found := c.respMap[reqID]; found {
 		replyCh <- message
-	} else if c.Opts.UnmatchedMessageHandler != nil {
-		go c.Opts.UnmatchedMessageHandler(c, message)
+	} else if c.Opts.InboundMessageHandler != nil {
+		go c.Opts.InboundMessageHandler(c, message)
 	} else {
 		log.Printf("can't find request for ID: %s", reqID)
 	}
