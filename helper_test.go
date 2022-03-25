@@ -104,6 +104,9 @@ func (t *testServer) ReceivedPings() int {
 const (
 	CardForDelayedResponse string = "4200000000000000"
 	CardForPingCounter     string = "4005550000000019"
+	// for sending incoming message with same STAN as
+	// received message
+	CardForSameSTANRequest string = "4012888888881881"
 )
 
 func NewTestServer() (*testServer, error) {
@@ -139,6 +142,22 @@ func NewTestServer() (*testServer, error) {
 			case CardForDelayedResponse:
 				// testing value to "sleep" for a 3 seconds
 				time.Sleep(500 * time.Millisecond)
+
+			case CardForSameSTANRequest:
+				// here we will send message to the client with
+				// the same STAN
+				stan, _ := message.GetString(11)
+				incomingMessage := iso8583.NewMessage(testSpec)
+				incomingMessage.MTI("0800")
+				incomingMessage.Field(11, stan)
+
+				_, err := c.Send(incomingMessage)
+				if err != nil {
+					log.Printf("sending message to client: %s", err.Error())
+				}
+
+				// and then delay the reply
+				time.Sleep(200 * time.Millisecond)
 
 			case CardForPingCounter:
 				// ping request received

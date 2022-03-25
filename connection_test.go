@@ -408,6 +408,53 @@ func TestClient_Send(t *testing.T) {
 		time.Sleep(1 * time.Second)
 	})
 
+	// if server sends a message to the client with the STAN that client is
+	// waiting for reply with, we should distinguish reply from incoming
+	// message
+	t.Run("it handles incoming messages with same STANs not as reply but as incoming message", func(t *testing.T) {
+		originalSTAN := getSTAN()
+
+		unmatchedMessageHandler := func(c *connection.Connection, message *iso8583.Message) {
+			mti, err := message.GetMTI()
+			require.NoError(t, err)
+			require.Equal(t, "0800", mti)
+
+			receivedSTAN, err := message.GetString(11)
+			require.NoError(t, err)
+			require.Equal(t, originalSTAN, receivedSTAN)
+
+			message.MTI("0810")
+			require.NoError(t, err)
+			c.Reply(message)
+		}
+
+		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength,
+			connection.SendTimeout(1*time.Second),
+			connection.InboundMessageHandler(unmatchedMessageHandler),
+		)
+		require.NoError(t, err)
+
+		err = c.Connect()
+		require.NoError(t, err)
+		defer c.Close()
+
+		// network management message to test timeout
+		message := iso8583.NewMessage(testSpec)
+		err = message.Marshal(baseFields{
+			MTI:                  field.NewStringValue("0800"),
+			PrimaryAccountNumber: field.NewStringValue(CardForSameSTANRequest),
+			STAN:                 field.NewStringValue(originalSTAN),
+		})
+		require.NoError(t, err)
+
+		res, err := c.Send(message)
+		require.NoError(t, err)
+
+		mti, err := res.GetMTI()
+		require.NoError(t, err)
+		require.Equal(t, "0810", mti)
+	})
+
 	t.Run("should allow setting a custom connection without overwriting it in connect", func(t *testing.T) {
 		closer := &TrackingRWCloser{}
 
