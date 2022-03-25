@@ -236,7 +236,7 @@ func (c *Connection) Send(message *iso8583.Message) (*iso8583.Message, error) {
 	case err = <-req.errCh:
 	case <-time.After(c.Opts.SendTimeout):
 		err = ErrSendTimeout
-		// reply can still be sent right after SendTimeout received.
+		// reply can still be sent after SendTimeout received.
 		// if we have UnmatchedMessageHandler set, then we want reply
 		// to not be lost but handled by it.
 		if c.Opts.InboundMessageHandler != nil {
