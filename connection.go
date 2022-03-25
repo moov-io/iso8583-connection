@@ -308,9 +308,9 @@ func (c *Connection) Reply(message *iso8583.Message) error {
 	return err
 }
 
-// requestID is a unique identifier for a request.
-// responses from the server are not guranteed to return in order so we must
-// have an id to reference the original req. built from stan and datetime
+// requestID is a unique identifier for a request.  responses from the server
+// are not guaranteed to return in order so we must have an id to reference the
+// original req. built from stan and datetime
 func requestID(message *iso8583.Message) (string, error) {
 	if message == nil {
 		return "", fmt.Errorf("message required")
@@ -329,14 +329,9 @@ func requestID(message *iso8583.Message) (string, error) {
 }
 
 const (
-	// position three of the MTI specifies the message function which
+	// position of the MTI specifies the message function which
 	// defines how the message should flow within the system.
 	messageFunctionIndex = 2
-
-	// there will be no matching request with such ID
-	// so incoming messages will always be handled by
-	// inbound message hanlder
-	incomingRequestID = "incoming request"
 
 	// following are responses to our requests
 	messageFunctionRequestResponse            = "1"

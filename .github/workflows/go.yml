@@ -19,4 +19,4 @@ jobs:
         go-version: 1.17
 
     - name: Test
-      run: go test -v -race ./...
+      run: make check

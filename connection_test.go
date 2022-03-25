@@ -409,7 +409,7 @@ func TestClient_Send(t *testing.T) {
 	})
 
 	// if server sends a message to the client with the STAN that client is
-	// waiting for reply with, we should distingush reply from incoming
+	// waiting for reply with, we should distinguish reply from incoming
 	// message
 	t.Run("it handles incoming messages with same STANs not as reply but as incoming message", func(t *testing.T) {
 		originalSTAN := getSTAN()
