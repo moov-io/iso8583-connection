@@ -1,4 +1,22 @@
-# ISO 8583 Connection (Multiplexer)
+[![Moov Banner Logo](https://user-images.githubusercontent.com/20115216/104214617-885b3c80-53ec-11eb-8ce0-9fc745fb5bfc.png)](https://github.com/moov-io)
+
+<p align="center">
+  <a href="https://moov-io.slack.com/archives/C014UT7C3ST">Community channel #iso8583</a>
+  ·
+  <a href="https://moov.io/blog/">Blog</a>
+  <br>
+  <br>
+</p>
+
+# moov-io/iso8583-connection
+
+Moov's mission is to give developers an easy way to create and integrate bank processing into their own software products. Our open source projects are each focused on solving a single responsibility in financial services and designed around performance, scalability, and ease of use.
+
+moov-io/iso8583-connection is a package helping with sending, receiving and matching ISO 8583 messages between client and server. It can be used both for acquiring and issuing services.
+
+## Project status
+
+ISO 8583 Connection package is in beta. Please star the project if you are interested in its progress. Please let us know if you encounter any bugs/unclear documentation or have feature suggestions by opening up an issue or pull request. Thanks!
 
 ## Configuration
 
@@ -133,3 +151,7 @@ It shows that:
 
 _Note, that these benchmarks currently measure not only the client performance
 (send/receive) but also the performance of the test server._
+
+## License
+
+Apache License 2.0 - See [LICENSE](LICENSE) for details.
