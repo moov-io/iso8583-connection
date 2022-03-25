@@ -85,13 +85,20 @@ type testServer struct {
 
 	// to protect following
 	mutex         sync.Mutex
-	ReceivedPings int
+	receivedPings int
 }
 
 func (t *testServer) Ping() {
 	t.mutex.Lock()
-	t.ReceivedPings++
+	t.receivedPings++
 	t.mutex.Unlock()
+}
+
+func (t *testServer) ReceivedPings() int {
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
+
+	return t.receivedPings
 }
 
 const (

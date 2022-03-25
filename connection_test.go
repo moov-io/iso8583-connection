@@ -360,11 +360,11 @@ func TestClient_Send(t *testing.T) {
 
 		// we expect that ping interval in 50ms has not passed yet
 		// and server has not being pinged
-		require.Equal(t, 0, server.ReceivedPings)
+		require.Equal(t, 0, server.ReceivedPings())
 
 		time.Sleep(200 * time.Millisecond)
 
-		require.True(t, server.ReceivedPings > 0)
+		require.True(t, server.ReceivedPings() > 0)
 	})
 
 	t.Run("it handles unrecognized responses", func(t *testing.T) {
