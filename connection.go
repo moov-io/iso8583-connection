@@ -328,6 +328,47 @@ func requestID(message *iso8583.Message) (string, error) {
 	return stan, nil
 }
 
+const (
+	// position three of the MTI specifies the message function which
+	// defines how the message should flow within the system.
+	messageFunctionIndex = 2
+
+	// there will be no matching request with such ID
+	// so incoming messages will always be handled by
+	// inbound message hanlder
+	incomingRequestID = "incoming request"
+
+	// following are responses to our requests
+	messageFunctionRequestResponse            = "1"
+	messageFunctionAdviceResponse             = "3"
+	messageFunctionNotificationAcknowledgment = "5"
+	messageFunctionInstructionAcknowledgment  = "7"
+)
+
+func isResponse(message *iso8583.Message) bool {
+	if message == nil {
+		return false
+	}
+
+	mti, _ := message.GetMTI()
+
+	if len(mti) < 4 {
+		return false
+	}
+
+	messageFunction := string(mti[messageFunctionIndex])
+
+	switch messageFunction {
+	case messageFunctionRequestResponse,
+		messageFunctionAdviceResponse,
+		messageFunctionNotificationAcknowledgment,
+		messageFunctionInstructionAcknowledgment:
+		return true
+	}
+
+	return false
+}
+
 // writeLoop reads requests from the channel and writes request message into
 // the socket connection. It also sends message when idle time passes
 func (c *Connection) writeLoop() {
@@ -419,21 +460,28 @@ func (c *Connection) handleResponse(rawMessage []byte) {
 		return
 	}
 
-	reqID, err := requestID(message)
-	if err != nil {
-		log.Printf("creating request ID: %v", err)
-		return
-	}
+	if isResponse(message) {
+		reqID, err := requestID(message)
+		if err != nil {
+			log.Printf("creating request ID: %v", err)
+			return
+		}
 
-	// send response message to the reply channel
-	c.pendingRequestsMu.Lock()
-	replyCh, found := c.respMap[reqID]
-	c.pendingRequestsMu.Unlock()
-	if found {
-		replyCh <- message
-	} else if c.Opts.InboundMessageHandler != nil {
-		go c.Opts.InboundMessageHandler(c, message)
+		// send response message to the reply channel
+		c.pendingRequestsMu.Lock()
+		replyCh, found := c.respMap[reqID]
+		c.pendingRequestsMu.Unlock()
+
+		if found {
+			replyCh <- message
+		} else if c.Opts.InboundMessageHandler != nil {
+			go c.Opts.InboundMessageHandler(c, message)
+		} else {
+			log.Printf("can't find request for ID: %s", reqID)
+		}
 	} else {
-		log.Printf("can't find request for ID: %s", reqID)
+		if c.Opts.InboundMessageHandler != nil {
+			go c.Opts.InboundMessageHandler(c, message)
+		}
 	}
 }
