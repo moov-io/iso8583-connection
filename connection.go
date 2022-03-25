@@ -436,5 +436,4 @@ func (c *Connection) handleResponse(rawMessage []byte) {
 	} else {
 		log.Printf("can't find request for ID: %s", reqID)
 	}
-	c.pendingRequestsMu.Unlock()
 }
