@@ -76,12 +76,16 @@ func InboundMessageHandler(handler func(c *Connection, message *iso8583.Message)
 	}
 }
 
+func defaultTLSConfig() *tls.Config {
+	return &tls.Config{
+		MinVersion: tls.VersionTLS12,
+	}
+}
+
 func ClientCert(cert, key string) Option {
 	return func(o *Options) error {
 		if o.TLSConfig == nil {
-			o.TLSConfig = &tls.Config{
-				MinVersion: tls.VersionTLS12,
-			}
+			o.TLSConfig = defaultTLSConfig()
 		}
 
 		certificate, err := tls.LoadX509KeyPair(cert, key)
@@ -99,9 +103,7 @@ func ClientCert(cert, key string) Option {
 func RootCAs(file ...string) Option {
 	return func(o *Options) error {
 		if o.TLSConfig == nil {
-			o.TLSConfig = &tls.Config{
-				MinVersion: tls.VersionTLS12,
-			}
+			o.TLSConfig = defaultTLSConfig()
 		}
 
 		certPool := x509.NewCertPool()
@@ -120,6 +122,16 @@ func RootCAs(file ...string) Option {
 
 		o.TLSConfig.RootCAs = certPool
 
+		return nil
+	}
+}
+
+func SetTLSConfig(cfg func(*tls.Config)) Option {
+	return func(o *Options) error {
+		if o.TLSConfig == nil {
+			o.TLSConfig = defaultTLSConfig()
+		}
+		cfg(o.TLSConfig)
 		return nil
 	}
 }
