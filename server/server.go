@@ -87,7 +87,9 @@ func (s *Server) Start(addr string) error {
 
 func (s *Server) Close() {
 	close(s.closeCh)
-	s.ln.Close()
+	if s.ln != nil {
+		s.ln.Close()
+	}
 	s.wg.Wait()
 }
 
