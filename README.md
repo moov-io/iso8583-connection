@@ -47,7 +47,7 @@ inboundMessageHandler := func(c *connection.Connection, message *iso8583.Message
 	switch mti {
 	case "0800":
 		echo := iso8583.NewMessage(brandSpec)
-		echo.MTI("08100")
+		echo.MTI("0810")
 		// set other fields
 		err := c.Reply(echo)
 		// handle error
