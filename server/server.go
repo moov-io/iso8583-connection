@@ -18,7 +18,6 @@ type Server struct {
 	wg             sync.WaitGroup
 
 	closeCh chan bool
-	startMu sync.Mutex
 
 	// spec that will be used to unpack received messages
 	spec *iso8583.MessageSpec
@@ -44,16 +43,13 @@ func New(spec *iso8583.MessageSpec, mlReader connection.MessageLengthReader, mlW
 }
 
 func (s *Server) Start(addr string) error {
-	s.startMu.Lock()
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		s.startMu.Unlock()
 		return err
 	}
 	// Store address and listener information for later
 	s.Addr = ln.Addr().String()
 	s.ln = ln
-	s.startMu.Unlock()
 
 	s.wg.Add(1)
 	go func() {
@@ -92,11 +88,9 @@ func (s *Server) Start(addr string) error {
 func (s *Server) Close() {
 	close(s.closeCh)
 
-	s.startMu.Lock()
 	if s.ln != nil {
 		s.ln.Close()
 	}
-	s.startMu.Unlock()
 
 	s.wg.Wait()
 }
