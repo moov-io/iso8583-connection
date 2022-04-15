@@ -57,10 +57,10 @@ var testSpec *iso8583.MessageSpec = &iso8583.MessageSpec{
 			Pref:        prefix.Binary.Fixed,
 		}),
 		2: field.NewString(&field.Spec{
-			Length:      19,
-			Description: "Primary Account Number",
+			Length:      3,
+			Description: "Test Case Code",
 			Enc:         encoding.ASCII,
-			Pref:        prefix.ASCII.LL,
+			Pref:        prefix.ASCII.Fixed,
 		}),
 		7: field.NewString(&field.Spec{
 			Length:      10,
@@ -102,11 +102,11 @@ func (t *testServer) ReceivedPings() int {
 }
 
 const (
-	CardForDelayedResponse string = "4200000000000000"
-	CardForPingCounter     string = "4005550000000019"
+	TestCaseDelayedResponse string = "001"
+	TestCasePingCounter     string = "002"
 	// for sending incoming message with same STAN as
 	// received message
-	CardForSameSTANRequest string = "4012888888881881"
+	TestCaseSameSTANRequest string = "003"
 )
 
 func NewTestServer() (*testServer, error) {
@@ -139,11 +139,11 @@ func NewTestServer() (*testServer, error) {
 			}
 
 			switch code {
-			case CardForDelayedResponse:
+			case TestCaseDelayedResponse:
 				// testing value to "sleep" for a 3 seconds
 				time.Sleep(500 * time.Millisecond)
 
-			case CardForSameSTANRequest:
+			case TestCaseSameSTANRequest:
 				// here we will send message to the client with
 				// the same STAN
 				stan, _ := message.GetString(11)
@@ -159,7 +159,7 @@ func NewTestServer() (*testServer, error) {
 				// and then delay the reply
 				time.Sleep(200 * time.Millisecond)
 
-			case CardForPingCounter:
+			case TestCasePingCounter:
 				// ping request received
 				srv.Ping()
 			}
