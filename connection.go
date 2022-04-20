@@ -178,8 +178,8 @@ func (c *Connection) handleConnectionError(err error) {
 	// close everything else we close normally
 	c.close()
 
-	if c.Opts.ClosedHandler != nil {
-		c.Opts.ClosedHandler(c)
+	if c.Opts.ConnectionClosedHandler != nil {
+		c.Opts.ConnectionClosedHandler(c)
 	}
 }
 

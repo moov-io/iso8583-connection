@@ -484,7 +484,7 @@ func TestClient_Send(t *testing.T) {
 		closedHandler := func(c *connection.Connection) {
 			isClosedHandlerCalled = true
 		}
-		c.SetOptions(connection.ClosedHandler(closedHandler))
+		c.SetOptions(connection.ConnectionClosedHandler(closedHandler))
 
 		err = c.Connect()
 		require.NoError(t, err)

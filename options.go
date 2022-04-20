@@ -30,9 +30,9 @@ type Options struct {
 	// * to handle network management messages (echo, heartbeat, etc.)
 	InboundMessageHandler func(c *Connection, message *iso8583.Message)
 
-	// ClosedHandler is called when connection is closed by server or there
+	// ConnectionClosedHandler is called when connection is closed by server or there
 	// were network errors during network read/write
-	ClosedHandler func(c *Connection)
+	ConnectionClosedHandler func(c *Connection)
 
 	TLSConfig *tls.Config
 }
@@ -72,10 +72,10 @@ func PingHandler(handler func(c *Connection)) Option {
 	}
 }
 
-// ClosedHandler sets a ClosedHandler option
-func ClosedHandler(handler func(c *Connection)) Option {
+// ConnectionClosedHandler sets a ConnectionClosedHandler option
+func ConnectionClosedHandler(handler func(c *Connection)) Option {
 	return func(o *Options) error {
-		o.ClosedHandler = handler
+		o.ConnectionClosedHandler = handler
 		return nil
 	}
 }

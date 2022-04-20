@@ -16,7 +16,7 @@ moov-io/iso8583-connection is a package helping with sending, receiving and matc
 
 ## Project status
 
-ISO 8583 Connection package is in beta. Please star the project if you are interested in its progress. Please let us know if you encounter any bugs/unclear documentation or have feature suggestions by opening up an issue or pull request. Thanks!
+ISO 8583 Connection package is used in production environments. Please star the project if you are interested in its progress. Please let us know if you encounter any bugs/unclear documentation or have feature suggestions by opening up an [issue](https://github.com/moov-io/iso8583-connection/issues/new) or pull request. Thanks!
 
 ## Configuration
 
@@ -26,8 +26,9 @@ Following options are supported:
 * IdleTime - sets the period of inactivity (no messages sent) after which a ping message will be sent to the server
 * PingHandler - called when no message was sent during idle time. It should be safe for concurrent use.
 * InboundMessageHandler - called when a message from the server is received or no matching request for the message was found. InboundMessageHandler must be safe to be called concurrenty.
+* ConnectionClosedHandler - is called when connection is closed by server or there were errors during network read/write that led to connection closure
 
-If you want to override default options, you can do this when creating instance of a client:
+If you want to override default options, you can do this when creating instance of a client or setting it separately using `SetOptions(options...)` method.
 
 ```go
 pingHandler := func(c *connection.Connection) {
@@ -83,12 +84,13 @@ c, err := connection.New("127.0.0.1:443", testSpec, readMessageLength, writeMess
 ## Usage
 
 ```go
-// see configuration options for more details about different handlers
+// see configuration options for more details
 c := connection.New("127.0.0.1:9999", brandSpec, readMessageLength, writeMessageLength,
 	connection.SendTimeout(100*time.Millisecond),
 	connection.IdleTime(50*time.Millisecond),
 	connection.PingHandler(pingHandler),
 	connection.UnmatchedMessageHandler(unmatchedMessageHandler),
+	connection.ConnectionClosedHandler(connectionClosedHandler),
 )
 err := c.Connect()
 if err != nil {
