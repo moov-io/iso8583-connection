@@ -480,9 +480,15 @@ func TestClient_Send(t *testing.T) {
 		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength, connection.SendTimeout(500*time.Millisecond))
 		require.NoError(t, err)
 
+		// to avoid data race with `isClosedHandlerCalled` when
+		// handling conn closed and checking it in the
+		// require.Eventually
+		var m sync.Mutex
 		var isClosedHandlerCalled bool
 		closedHandler := func(c *connection.Connection) {
+			m.Lock()
 			isClosedHandlerCalled = true
+			m.Unlock()
 		}
 		c.SetOptions(connection.ConnectionClosedHandler(closedHandler))
 
@@ -506,6 +512,9 @@ func TestClient_Send(t *testing.T) {
 		require.NoError(t, err)
 
 		require.Eventually(t, func() bool {
+			m.Lock()
+			defer m.Unlock()
+
 			return isClosedHandlerCalled
 		}, 200*time.Millisecond, 10*time.Millisecond)
 	})

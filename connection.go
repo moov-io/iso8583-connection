@@ -153,9 +153,11 @@ func (c *Connection) handleConnectionError(err error) {
 	// channel to wait for all goroutines to exit
 	done := make(chan bool)
 
+	c.pendingRequestsMu.Lock()
 	for _, resp := range c.respMap {
 		resp.errCh <- ErrConnectionClosed
 	}
+	c.pendingRequestsMu.Unlock()
 
 	// return error to all Send methods
 	go func() {
@@ -425,7 +427,7 @@ func isResponse(message *iso8583.Message) bool {
 func (c *Connection) writeLoop() {
 	var err error
 
-	for {
+	for err == nil {
 		select {
 		case req := <-c.requestsCh:
 			// if it's a request message, not a response
@@ -440,9 +442,6 @@ func (c *Connection) writeLoop() {
 
 			_, err = c.conn.Write([]byte(req.rawMessage))
 			if err != nil {
-				req.errCh <- err
-
-				// passed message to errCh, we can break from this switch
 				break
 			}
 
