@@ -9,7 +9,6 @@ import (
 	"io"
 	"log"
 	"net"
-	"os"
 	"sync"
 	"time"
 
@@ -50,7 +49,7 @@ type Connection struct {
 	writeMessageLength MessageLengthWriter
 
 	pendingRequestsMu sync.Mutex
-	respMap           map[string]chan *iso8583.Message
+	respMap           map[string]response
 
 	// WaitGroup to wait for all Send calls to finish
 	wg sync.WaitGroup
@@ -76,7 +75,7 @@ func New(addr string, spec *iso8583.MessageSpec, mlReader MessageLengthReader, m
 		Opts:               opts,
 		requestsCh:         make(chan request),
 		done:               make(chan struct{}),
-		respMap:            make(map[string]chan *iso8583.Message),
+		respMap:            make(map[string]response),
 		spec:               spec,
 		readMessageLength:  mlReader,
 		writeMessageLength: mlWriter,
@@ -140,6 +139,62 @@ func (c *Connection) run() {
 	go c.readLoop()
 }
 
+func (c *Connection) handleConnectionError(err error) {
+	// lock to check and update `closing`
+	c.mutex.Lock()
+	if err == nil || c.closing {
+		c.mutex.Unlock()
+		return
+	}
+
+	c.closing = true
+	c.mutex.Unlock()
+
+	// channel to wait for all goroutines to exit
+	done := make(chan bool)
+
+	for _, resp := range c.respMap {
+		resp.errCh <- ErrConnectionClosed
+	}
+
+	// return error to all Send methods
+	go func() {
+		for {
+			select {
+			case req := <-c.requestsCh:
+				req.errCh <- ErrConnectionClosed
+			case <-done:
+				return
+			}
+
+		}
+	}()
+
+	go func() {
+		c.wg.Wait()
+		done <- true
+	}()
+
+	// close everything
+	c.close()
+}
+
+func (c *Connection) close() error {
+	// wait for all requests to complete before closing the connection
+	c.wg.Wait()
+
+	close(c.done)
+
+	if c.conn != nil {
+		err := c.conn.Close()
+		if err != nil {
+			return fmt.Errorf("closing connection: %w", err)
+		}
+	}
+
+	return nil
+}
+
 // Close waits for pending requests to complete and then closes network
 // connection with ISO 8583 server
 func (c *Connection) Close() error {
@@ -152,18 +207,7 @@ func (c *Connection) Close() error {
 	c.closing = true
 	c.mutex.Unlock()
 
-	// wait for all requests to complete before closing the connection
-	c.wg.Wait()
-
-	close(c.done)
-
-	if c.conn != nil {
-		err := c.conn.Close()
-		if err != nil {
-			return fmt.Errorf("closing connection: %w", err)
-		}
-	}
-	return nil
+	return c.close()
 }
 
 func (c *Connection) Done() <-chan struct{} {
@@ -178,6 +222,14 @@ type request struct {
 	// ID of the request (based on STAN, RRN, etc.)
 	requestID string
 
+	// channel to receive reply from the server
+	replyCh chan *iso8583.Message
+
+	// channel to receive error that may happen down the road
+	errCh chan error
+}
+
+type response struct {
 	// channel to receive reply from the server
 	replyCh chan *iso8583.Message
 
@@ -367,17 +419,22 @@ func isResponse(message *iso8583.Message) bool {
 // writeLoop reads requests from the channel and writes request message into
 // the socket connection. It also sends message when idle time passes
 func (c *Connection) writeLoop() {
+	var err error
+
 	for {
 		select {
 		case req := <-c.requestsCh:
 			// if it's a request message, not a response
 			if req.replyCh != nil {
 				c.pendingRequestsMu.Lock()
-				c.respMap[req.requestID] = req.replyCh
+				c.respMap[req.requestID] = response{
+					replyCh: req.replyCh,
+					errCh:   req.errCh,
+				}
 				c.pendingRequestsMu.Unlock()
 			}
 
-			_, err := c.conn.Write([]byte(req.rawMessage))
+			_, err = c.conn.Write([]byte(req.rawMessage))
 			if err != nil {
 				req.errCh <- err
 
@@ -402,7 +459,8 @@ func (c *Connection) writeLoop() {
 		}
 
 	}
-	// TODO: handle write error: reconnect, re-try?, etc.
+
+	c.handleConnectionError(err)
 }
 
 // readLoop reads data from the socket (message length header and raw message)
@@ -428,20 +486,7 @@ func (c *Connection) readLoop() {
 		go c.handleResponse(rawMessage)
 	}
 
-	// lock to check `closing`
-	c.mutex.Lock()
-	// if we receive error and we are closing connection, we have to set
-	if err != nil && !c.closing {
-		if errors.Is(err, io.EOF) {
-			// TODO handle erorrs better
-			// we can hanlde connection closed somehow (reconnect?)
-			// fmt.Fprintln(os.Stderr, "connection closed")
-		} else {
-			fmt.Fprintln(os.Stderr, "reading from socket:", err)
-		}
-	}
-	c.mutex.Unlock()
-
+	c.handleConnectionError(err)
 }
 
 // handleResponse unpacks the message and then sends it to the reply channel
@@ -464,11 +509,11 @@ func (c *Connection) handleResponse(rawMessage []byte) {
 
 		// send response message to the reply channel
 		c.pendingRequestsMu.Lock()
-		replyCh, found := c.respMap[reqID]
+		response, found := c.respMap[reqID]
 		c.pendingRequestsMu.Unlock()
 
 		if found {
-			replyCh <- message
+			response.replyCh <- message
 		} else if c.Opts.InboundMessageHandler != nil {
 			go c.Opts.InboundMessageHandler(c, message)
 		} else {

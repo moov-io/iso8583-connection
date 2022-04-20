@@ -102,11 +102,13 @@ func (t *testServer) ReceivedPings() int {
 }
 
 const (
+	TestCaseReply           string = "000"
 	TestCaseDelayedResponse string = "001"
 	TestCasePingCounter     string = "002"
 	// for sending incoming message with same STAN as
 	// received message
 	TestCaseSameSTANRequest string = "003"
+	TestCaseCloseConnection string = "004"
 )
 
 func NewTestServer() (*testServer, error) {
@@ -142,7 +144,7 @@ func NewTestServer() (*testServer, error) {
 			case TestCaseDelayedResponse:
 				// testing value to "sleep" for a 3 seconds
 				time.Sleep(500 * time.Millisecond)
-
+				c.Reply(message)
 			case TestCaseSameSTANRequest:
 				// here we will send message to the client with
 				// the same STAN
@@ -155,17 +157,25 @@ func NewTestServer() (*testServer, error) {
 				if err != nil {
 					log.Printf("sending message to client: %s", err.Error())
 				}
-
 				// and then delay the reply
 				time.Sleep(200 * time.Millisecond)
-
+				c.Reply(message)
 			case TestCasePingCounter:
 				// ping request received
 				srv.Ping()
+				c.Reply(message)
+			case TestCaseCloseConnection:
+				// reply
+				c.Reply(message)
+				// let client receive reply
+				time.Sleep(50 * time.Millisecond)
+				c.Close()
+			case TestCaseReply:
+				c.Reply(message)
+			default:
+				c.Reply(message)
 			}
 		}
-
-		c.Reply(message)
 	}
 
 	server := server.New(testSpec, readMessageLength, writeMessageLength, connection.InboundMessageHandler(testServerLogic))

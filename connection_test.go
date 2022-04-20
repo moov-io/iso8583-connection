@@ -472,23 +472,103 @@ func TestClient_Send(t *testing.T) {
 		require.Equal(t, closer.Used, true, "client didn't use custom connection")
 	})
 
-	t.Run("it fails? when connection was closed by server", func(t *testing.T) {
-		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength)
+	// if server closed the connection, we want Send method to receive
+	// ErrConnectionClosed and not ErrSendTimeout
+	t.Run("pending request gets ErrConnectionClosed if server closed the connection", func(t *testing.T) {
+		server, err := NewTestServer()
+		require.NoError(t, err)
+		defer server.Close()
+
+		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength, connection.SendTimeout(500*time.Millisecond))
 		require.NoError(t, err)
 
 		err = c.Connect()
 		require.NoError(t, err)
+		defer c.Close()
 
-		// network management message
+		done := make(chan bool)
+
+		// send message that will trigger server handler to sleep
+		// trigger server to close connection
+		go func() {
+			// regardless of the test result, we have to finish parent t.Run
+			defer func() {
+				done <- true
+			}()
+
+			message := iso8583.NewMessage(testSpec)
+			err := message.Marshal(baseFields{
+				MTI:          field.NewStringValue("0800"),
+				TestCaseCode: field.NewStringValue(TestCaseDelayedResponse),
+				STAN:         field.NewStringValue(getSTAN()),
+			})
+			require.NoError(t, err)
+
+			_, err = c.Send(message)
+
+			// instead of ErrSendTimeout we want to receive
+			// ErrConnectionClosed
+			require.Equal(t, connection.ErrConnectionClosed, err)
+		}()
+
+		time.Sleep(50 * time.Millisecond)
+
+		// trigger server to close connection
 		message := iso8583.NewMessage(testSpec)
 		err = message.Marshal(baseFields{
 			MTI:          field.NewStringValue("0800"),
-			TestCaseCode: field.NewStringValue(TestCaseDelayedResponse),
+			TestCaseCode: field.NewStringValue(TestCaseCloseConnection),
 			STAN:         field.NewStringValue(getSTAN()),
 		})
 		require.NoError(t, err)
 
-		require.NoError(t, c.Close())
+		// we can get reply or connection can be closed here too
+		// but because in test server we have a tiny delay before
+		// we close the connection, we are safe here to get no err
+		_, err = c.Send(message)
+		require.NoError(t, err)
+
+		<-done
+	})
+
+	t.Run("it fails when connection was closed by server", func(t *testing.T) {
+		server, err := NewTestServer()
+		require.NoError(t, err)
+		defer server.Close()
+
+		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength, connection.SendTimeout(2*time.Second))
+		require.NoError(t, err)
+
+		err = c.Connect()
+		require.NoError(t, err)
+		defer func() {
+			c.Close()
+		}()
+
+		// trigger server to close connection
+		message := iso8583.NewMessage(testSpec)
+		err = message.Marshal(baseFields{
+			MTI:          field.NewStringValue("0800"),
+			TestCaseCode: field.NewStringValue(TestCaseCloseConnection),
+			STAN:         field.NewStringValue(getSTAN()),
+		})
+		require.NoError(t, err)
+
+		_, err = c.Send(message)
+		require.NoError(t, err)
+
+		// let's wait for connection to be close
+		time.Sleep(100 * time.Millisecond)
+
+		// because connection was closed (by server) we should receive
+		// ErrConnectionClosed error
+		message = iso8583.NewMessage(testSpec)
+		err = message.Marshal(baseFields{
+			MTI:          field.NewStringValue("0800"),
+			TestCaseCode: field.NewStringValue(TestCaseReply),
+			STAN:         field.NewStringValue(getSTAN()),
+		})
+		require.NoError(t, err)
 
 		_, err = c.Send(message)
 		require.Equal(t, connection.ErrConnectionClosed, err)
