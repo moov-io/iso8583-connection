@@ -472,6 +472,44 @@ func TestClient_Send(t *testing.T) {
 		require.Equal(t, closer.Used, true, "client didn't use custom connection")
 	})
 
+	t.Run("ClosedHandler is called when connection is closed", func(t *testing.T) {
+		server, err := NewTestServer()
+		require.NoError(t, err)
+		defer server.Close()
+
+		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength, connection.SendTimeout(500*time.Millisecond))
+		require.NoError(t, err)
+
+		var isClosedHandlerCalled bool
+		closedHandler := func(c *connection.Connection) {
+			isClosedHandlerCalled = true
+		}
+		c.SetOptions(connection.ClosedHandler(closedHandler))
+
+		err = c.Connect()
+		require.NoError(t, err)
+		defer c.Close()
+
+		// trigger server to close connection
+		message := iso8583.NewMessage(testSpec)
+		err = message.Marshal(baseFields{
+			MTI:          field.NewStringValue("0800"),
+			TestCaseCode: field.NewStringValue(TestCaseCloseConnection),
+			STAN:         field.NewStringValue(getSTAN()),
+		})
+		require.NoError(t, err)
+
+		// we can get reply or connection can be closed here too
+		// but because in test server we have a tiny delay before
+		// we close the connection, we are safe here to get no err
+		_, err = c.Send(message)
+		require.NoError(t, err)
+
+		require.Eventually(t, func() bool {
+			return isClosedHandlerCalled
+		}, 200*time.Millisecond, 10*time.Millisecond)
+	})
+
 	// if server closed the connection, we want Send method to receive
 	// ErrConnectionClosed and not ErrSendTimeout
 	t.Run("pending request gets ErrConnectionClosed if server closed the connection", func(t *testing.T) {

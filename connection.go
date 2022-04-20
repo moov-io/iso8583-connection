@@ -175,8 +175,12 @@ func (c *Connection) handleConnectionError(err error) {
 		done <- true
 	}()
 
-	// close everything
+	// close everything else we close normally
 	c.close()
+
+	if c.Opts.ClosedHandler != nil {
+		c.Opts.ClosedHandler(c)
+	}
 }
 
 func (c *Connection) close() error {
