@@ -181,7 +181,7 @@ func (c *Connection) handleConnectionError(err error) {
 	c.close()
 
 	if c.Opts.ConnectionClosedHandler != nil {
-		c.Opts.ConnectionClosedHandler(c)
+		go c.Opts.ConnectionClosedHandler(c)
 	}
 }
 
