@@ -57,10 +57,10 @@ var testSpec *iso8583.MessageSpec = &iso8583.MessageSpec{
 			Pref:        prefix.Binary.Fixed,
 		}),
 		2: field.NewString(&field.Spec{
-			Length:      19,
-			Description: "Primary Account Number",
+			Length:      3,
+			Description: "Test Case Code",
 			Enc:         encoding.ASCII,
-			Pref:        prefix.ASCII.LL,
+			Pref:        prefix.ASCII.Fixed,
 		}),
 		7: field.NewString(&field.Spec{
 			Length:      10,
@@ -102,11 +102,13 @@ func (t *testServer) ReceivedPings() int {
 }
 
 const (
-	CardForDelayedResponse string = "4200000000000000"
-	CardForPingCounter     string = "4005550000000019"
+	TestCaseReply           string = "000"
+	TestCaseDelayedResponse string = "001"
+	TestCasePingCounter     string = "002"
 	// for sending incoming message with same STAN as
 	// received message
-	CardForSameSTANRequest string = "4012888888881881"
+	TestCaseSameSTANRequest string = "003"
+	TestCaseCloseConnection string = "004"
 )
 
 func NewTestServer() (*testServer, error) {
@@ -139,11 +141,11 @@ func NewTestServer() (*testServer, error) {
 			}
 
 			switch code {
-			case CardForDelayedResponse:
+			case TestCaseDelayedResponse:
 				// testing value to "sleep" for a 3 seconds
 				time.Sleep(500 * time.Millisecond)
-
-			case CardForSameSTANRequest:
+				c.Reply(message)
+			case TestCaseSameSTANRequest:
 				// here we will send message to the client with
 				// the same STAN
 				stan, _ := message.GetString(11)
@@ -155,17 +157,25 @@ func NewTestServer() (*testServer, error) {
 				if err != nil {
 					log.Printf("sending message to client: %s", err.Error())
 				}
-
 				// and then delay the reply
 				time.Sleep(200 * time.Millisecond)
-
-			case CardForPingCounter:
+				c.Reply(message)
+			case TestCasePingCounter:
 				// ping request received
 				srv.Ping()
+				c.Reply(message)
+			case TestCaseCloseConnection:
+				// reply
+				c.Reply(message)
+				// let client receive reply
+				time.Sleep(50 * time.Millisecond)
+				c.Close()
+			case TestCaseReply:
+				c.Reply(message)
+			default:
+				c.Reply(message)
 			}
 		}
-
-		c.Reply(message)
 	}
 
 	server := server.New(testSpec, readMessageLength, writeMessageLength, connection.InboundMessageHandler(testServerLogic))

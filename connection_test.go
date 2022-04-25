@@ -17,9 +17,9 @@ import (
 )
 
 type baseFields struct {
-	MTI                  *field.String `index:"0"`
-	PrimaryAccountNumber *field.String `index:"2"`
-	STAN                 *field.String `index:"11"`
+	MTI          *field.String `index:"0"`
+	TestCaseCode *field.String `index:"2"`
+	STAN         *field.String `index:"11"`
 }
 
 var stan int
@@ -109,9 +109,9 @@ func TestClient_Send(t *testing.T) {
 		// network management message
 		message := iso8583.NewMessage(testSpec)
 		err = message.Marshal(baseFields{
-			MTI:                  field.NewStringValue("0800"),
-			PrimaryAccountNumber: field.NewStringValue(CardForDelayedResponse),
-			STAN:                 field.NewStringValue(getSTAN()),
+			MTI:          field.NewStringValue("0800"),
+			TestCaseCode: field.NewStringValue(TestCaseDelayedResponse),
+			STAN:         field.NewStringValue(getSTAN()),
 		})
 		require.NoError(t, err)
 
@@ -137,9 +137,9 @@ func TestClient_Send(t *testing.T) {
 		// network management message
 		message := iso8583.NewMessage(testSpec)
 		err = message.Marshal(baseFields{
-			MTI:                  field.NewStringValue("0800"),
-			PrimaryAccountNumber: field.NewStringValue(CardForDelayedResponse),
-			STAN:                 field.NewStringValue(getSTAN()),
+			MTI:          field.NewStringValue("0800"),
+			TestCaseCode: field.NewStringValue(TestCaseDelayedResponse),
+			STAN:         field.NewStringValue(getSTAN()),
 		})
 		require.NoError(t, err)
 
@@ -171,9 +171,9 @@ func TestClient_Send(t *testing.T) {
 		// network management message to test timeout
 		message = iso8583.NewMessage(testSpec)
 		err = message.Marshal(baseFields{
-			MTI:                  field.NewStringValue("0800"),
-			PrimaryAccountNumber: field.NewStringValue(CardForDelayedResponse),
-			STAN:                 field.NewStringValue(getSTAN()),
+			MTI:          field.NewStringValue("0800"),
+			TestCaseCode: field.NewStringValue(TestCaseDelayedResponse),
+			STAN:         field.NewStringValue(getSTAN()),
 		})
 		require.NoError(t, err)
 
@@ -219,9 +219,9 @@ func TestClient_Send(t *testing.T) {
 				// network management message
 				message := iso8583.NewMessage(testSpec)
 				err := message.Marshal(baseFields{
-					MTI:                  field.NewStringValue("0800"),
-					PrimaryAccountNumber: field.NewStringValue(CardForDelayedResponse),
-					STAN:                 field.NewStringValue(getSTAN()),
+					MTI:          field.NewStringValue("0800"),
+					TestCaseCode: field.NewStringValue(TestCaseDelayedResponse),
+					STAN:         field.NewStringValue(getSTAN()),
 				})
 				require.NoError(t, err)
 
@@ -267,9 +267,9 @@ func TestClient_Send(t *testing.T) {
 
 			message := iso8583.NewMessage(testSpec)
 			err := message.Marshal(baseFields{
-				MTI:                  field.NewStringValue("0800"),
-				PrimaryAccountNumber: field.NewStringValue(CardForDelayedResponse),
-				STAN:                 field.NewStringValue(getSTAN()),
+				MTI:          field.NewStringValue("0800"),
+				TestCaseCode: field.NewStringValue(TestCaseDelayedResponse),
+				STAN:         field.NewStringValue(getSTAN()),
 			})
 			require.NoError(t, err)
 
@@ -334,9 +334,9 @@ func TestClient_Send(t *testing.T) {
 		pingHandler := func(c *connection.Connection) {
 			pingMessage := iso8583.NewMessage(testSpec)
 			err := pingMessage.Marshal(baseFields{
-				MTI:                  field.NewStringValue("0800"),
-				PrimaryAccountNumber: field.NewStringValue(CardForPingCounter),
-				STAN:                 field.NewStringValue(getSTAN()),
+				MTI:          field.NewStringValue("0800"),
+				TestCaseCode: field.NewStringValue(TestCasePingCounter),
+				STAN:         field.NewStringValue(getSTAN()),
 			})
 			require.NoError(t, err)
 
@@ -378,7 +378,7 @@ func TestClient_Send(t *testing.T) {
 
 			pan, err := message.GetString(2)
 			require.NoError(t, err)
-			require.Equal(t, CardForDelayedResponse, pan)
+			require.Equal(t, TestCaseDelayedResponse, pan)
 		}
 
 		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength,
@@ -394,9 +394,9 @@ func TestClient_Send(t *testing.T) {
 		// network management message to test timeout
 		message := iso8583.NewMessage(testSpec)
 		err = message.Marshal(baseFields{
-			MTI:                  field.NewStringValue("0800"),
-			PrimaryAccountNumber: field.NewStringValue(CardForDelayedResponse),
-			STAN:                 field.NewStringValue(getSTAN()),
+			MTI:          field.NewStringValue("0800"),
+			TestCaseCode: field.NewStringValue(TestCaseDelayedResponse),
+			STAN:         field.NewStringValue(getSTAN()),
 		})
 		require.NoError(t, err)
 
@@ -441,9 +441,9 @@ func TestClient_Send(t *testing.T) {
 		// network management message to test timeout
 		message := iso8583.NewMessage(testSpec)
 		err = message.Marshal(baseFields{
-			MTI:                  field.NewStringValue("0800"),
-			PrimaryAccountNumber: field.NewStringValue(CardForSameSTANRequest),
-			STAN:                 field.NewStringValue(originalSTAN),
+			MTI:          field.NewStringValue("0800"),
+			TestCaseCode: field.NewStringValue(TestCaseSameSTANRequest),
+			STAN:         field.NewStringValue(originalSTAN),
 		})
 		require.NoError(t, err)
 
@@ -470,6 +470,161 @@ func TestClient_Send(t *testing.T) {
 		c.Reply(msg)
 
 		require.Equal(t, closer.Used, true, "client didn't use custom connection")
+	})
+
+	// if server closed the connection, we want Send method to receive
+	// ErrConnectionClosed and not ErrSendTimeout
+	t.Run("pending requests get ErrConnectionClosed if server closed the connection", func(t *testing.T) {
+		server, err := NewTestServer()
+		require.NoError(t, err)
+		defer server.Close()
+
+		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength, connection.SendTimeout(500*time.Millisecond))
+		require.NoError(t, err)
+
+		err = c.Connect()
+		require.NoError(t, err)
+		defer c.Close()
+
+		done := make(chan bool)
+
+		// send message that will trigger server handler to sleep
+		// trigger server to close connection
+		go func() {
+			// regardless of the test result, we have to finish parent t.Run
+			defer func() {
+				done <- true
+			}()
+
+			message := iso8583.NewMessage(testSpec)
+			err := message.Marshal(baseFields{
+				MTI:          field.NewStringValue("0800"),
+				TestCaseCode: field.NewStringValue(TestCaseDelayedResponse),
+				STAN:         field.NewStringValue(getSTAN()),
+			})
+			require.NoError(t, err)
+
+			_, err = c.Send(message)
+
+			// instead of ErrSendTimeout we want to receive
+			// ErrConnectionClosed
+			require.Equal(t, connection.ErrConnectionClosed, err)
+		}()
+
+		time.Sleep(50 * time.Millisecond)
+
+		// trigger server to close connection
+		message := iso8583.NewMessage(testSpec)
+		err = message.Marshal(baseFields{
+			MTI:          field.NewStringValue("0800"),
+			TestCaseCode: field.NewStringValue(TestCaseCloseConnection),
+			STAN:         field.NewStringValue(getSTAN()),
+		})
+		require.NoError(t, err)
+
+		// we can get reply or connection can be closed here too
+		// but because in test server we have a tiny delay before
+		// we close the connection, we are safe here to get no err
+		_, err = c.Send(message)
+		require.NoError(t, err)
+
+		<-done
+	})
+
+	t.Run("it returns ErrConnectionClosed when connection was closed by server", func(t *testing.T) {
+		server, err := NewTestServer()
+		require.NoError(t, err)
+		defer server.Close()
+
+		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength, connection.SendTimeout(2*time.Second))
+		require.NoError(t, err)
+
+		err = c.Connect()
+		require.NoError(t, err)
+		defer func() {
+			c.Close()
+		}()
+
+		// trigger server to close connection
+		message := iso8583.NewMessage(testSpec)
+		err = message.Marshal(baseFields{
+			MTI:          field.NewStringValue("0800"),
+			TestCaseCode: field.NewStringValue(TestCaseCloseConnection),
+			STAN:         field.NewStringValue(getSTAN()),
+		})
+		require.NoError(t, err)
+
+		_, err = c.Send(message)
+		require.NoError(t, err)
+
+		// let's wait for connection to be close
+		time.Sleep(100 * time.Millisecond)
+
+		// because connection was closed (by server) we should receive
+		// ErrConnectionClosed error
+		message = iso8583.NewMessage(testSpec)
+		err = message.Marshal(baseFields{
+			MTI:          field.NewStringValue("0800"),
+			TestCaseCode: field.NewStringValue(TestCaseReply),
+			STAN:         field.NewStringValue(getSTAN()),
+		})
+		require.NoError(t, err)
+
+		_, err = c.Send(message)
+		require.Equal(t, connection.ErrConnectionClosed, err)
+	})
+}
+
+func TestClient_Options(t *testing.T) {
+	t.Run("ClosedHandler is called when connection is closed", func(t *testing.T) {
+		server, err := NewTestServer()
+		require.NoError(t, err)
+		defer server.Close()
+
+		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength, connection.SendTimeout(500*time.Millisecond))
+		require.NoError(t, err)
+
+		// to avoid data race with `isClosedHandlerCalled` when
+		// handling conn closed and checking it in the
+		// require.Eventually
+		var m sync.Mutex
+		var isClosedHandlerCalled bool
+		var callsCounter int
+		closedHandler := func(c *connection.Connection) {
+			m.Lock()
+			isClosedHandlerCalled = true
+			callsCounter += 1
+			m.Unlock()
+		}
+		c.SetOptions(connection.ConnectionClosedHandler(closedHandler))
+
+		err = c.Connect()
+		require.NoError(t, err)
+		defer c.Close()
+
+		// trigger server to close connection
+		message := iso8583.NewMessage(testSpec)
+		err = message.Marshal(baseFields{
+			MTI:          field.NewStringValue("0800"),
+			TestCaseCode: field.NewStringValue(TestCaseCloseConnection),
+			STAN:         field.NewStringValue(getSTAN()),
+		})
+		require.NoError(t, err)
+
+		// we can get reply or connection can be closed here too
+		// but because in test server we have a tiny delay before
+		// we close the connection, we are safe here to get no err
+		_, err = c.Send(message)
+		require.NoError(t, err)
+
+		require.Eventually(t, func() bool {
+			m.Lock()
+			defer m.Unlock()
+
+			return isClosedHandlerCalled
+		}, 200*time.Millisecond, 10*time.Millisecond)
+
+		require.Equal(t, 1, callsCounter)
 	})
 }
 
