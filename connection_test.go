@@ -472,56 +472,9 @@ func TestClient_Send(t *testing.T) {
 		require.Equal(t, closer.Used, true, "client didn't use custom connection")
 	})
 
-	t.Run("ClosedHandler is called when connection is closed", func(t *testing.T) {
-		server, err := NewTestServer()
-		require.NoError(t, err)
-		defer server.Close()
-
-		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength, connection.SendTimeout(500*time.Millisecond))
-		require.NoError(t, err)
-
-		// to avoid data race with `isClosedHandlerCalled` when
-		// handling conn closed and checking it in the
-		// require.Eventually
-		var m sync.Mutex
-		var isClosedHandlerCalled bool
-		closedHandler := func(c *connection.Connection) {
-			m.Lock()
-			isClosedHandlerCalled = true
-			m.Unlock()
-		}
-		c.SetOptions(connection.ConnectionClosedHandler(closedHandler))
-
-		err = c.Connect()
-		require.NoError(t, err)
-		defer c.Close()
-
-		// trigger server to close connection
-		message := iso8583.NewMessage(testSpec)
-		err = message.Marshal(baseFields{
-			MTI:          field.NewStringValue("0800"),
-			TestCaseCode: field.NewStringValue(TestCaseCloseConnection),
-			STAN:         field.NewStringValue(getSTAN()),
-		})
-		require.NoError(t, err)
-
-		// we can get reply or connection can be closed here too
-		// but because in test server we have a tiny delay before
-		// we close the connection, we are safe here to get no err
-		_, err = c.Send(message)
-		require.NoError(t, err)
-
-		require.Eventually(t, func() bool {
-			m.Lock()
-			defer m.Unlock()
-
-			return isClosedHandlerCalled
-		}, 200*time.Millisecond, 10*time.Millisecond)
-	})
-
 	// if server closed the connection, we want Send method to receive
 	// ErrConnectionClosed and not ErrSendTimeout
-	t.Run("pending request gets ErrConnectionClosed if server closed the connection", func(t *testing.T) {
+	t.Run("pending requests get ErrConnectionClosed if server closed the connection", func(t *testing.T) {
 		server, err := NewTestServer()
 		require.NoError(t, err)
 		defer server.Close()
@@ -578,7 +531,7 @@ func TestClient_Send(t *testing.T) {
 		<-done
 	})
 
-	t.Run("it fails when connection was closed by server", func(t *testing.T) {
+	t.Run("it returns ErrConnectionClosed when connection was closed by server", func(t *testing.T) {
 		server, err := NewTestServer()
 		require.NoError(t, err)
 		defer server.Close()
@@ -619,6 +572,59 @@ func TestClient_Send(t *testing.T) {
 
 		_, err = c.Send(message)
 		require.Equal(t, connection.ErrConnectionClosed, err)
+	})
+}
+
+func TestClient_Options(t *testing.T) {
+	t.Run("ClosedHandler is called when connection is closed", func(t *testing.T) {
+		server, err := NewTestServer()
+		require.NoError(t, err)
+		defer server.Close()
+
+		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength, connection.SendTimeout(500*time.Millisecond))
+		require.NoError(t, err)
+
+		// to avoid data race with `isClosedHandlerCalled` when
+		// handling conn closed and checking it in the
+		// require.Eventually
+		var m sync.Mutex
+		var isClosedHandlerCalled bool
+		var callsCounter int
+		closedHandler := func(c *connection.Connection) {
+			m.Lock()
+			isClosedHandlerCalled = true
+			callsCounter += 1
+			m.Unlock()
+		}
+		c.SetOptions(connection.ConnectionClosedHandler(closedHandler))
+
+		err = c.Connect()
+		require.NoError(t, err)
+		defer c.Close()
+
+		// trigger server to close connection
+		message := iso8583.NewMessage(testSpec)
+		err = message.Marshal(baseFields{
+			MTI:          field.NewStringValue("0800"),
+			TestCaseCode: field.NewStringValue(TestCaseCloseConnection),
+			STAN:         field.NewStringValue(getSTAN()),
+		})
+		require.NoError(t, err)
+
+		// we can get reply or connection can be closed here too
+		// but because in test server we have a tiny delay before
+		// we close the connection, we are safe here to get no err
+		_, err = c.Send(message)
+		require.NoError(t, err)
+
+		require.Eventually(t, func() bool {
+			m.Lock()
+			defer m.Unlock()
+
+			return isClosedHandlerCalled
+		}, 200*time.Millisecond, 10*time.Millisecond)
+
+		require.Equal(t, 1, callsCounter)
 	})
 }
 
