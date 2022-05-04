@@ -134,16 +134,11 @@ func (c *Connection) Connect() error {
 	return nil
 }
 
-// Listen accepts a connection to the server using the configured address and should be used when the other party
+// Accept accepts a connection to the server using the configured address and should be used when the other party
 // is responsible for establishing the connection.
-func (c *Connection) Listen() error {
+func (c *Connection) Accept() error {
 	var conn net.Conn
 	var err error
-
-	if c.conn != nil {
-		c.run()
-		return nil
-	}
 
 	listener, err := net.Listen("tcp", c.addr)
 	if err != nil {
