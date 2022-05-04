@@ -106,7 +106,8 @@ func (c *Connection) SetOptions(options ...Option) error {
 	return nil
 }
 
-// Connect establishes the connection to the server using configured Addr
+// Connect establishes a connection to the server using configured address and should be used when the implementing
+// party is responsible for establishing the connection.
 func (c *Connection) Connect() error {
 	var conn net.Conn
 	var err error
@@ -128,6 +129,34 @@ func (c *Connection) Connect() error {
 
 	c.conn = conn
 
+	c.run()
+
+	return nil
+}
+
+// Listen accepts a connection to the server using the configured address and should be used when the other party
+// is responsible for establishing the connection.
+func (c *Connection) Listen() error {
+	var conn net.Conn
+	var err error
+
+	if c.conn != nil {
+		c.run()
+		return nil
+	}
+
+	listener, err := net.Listen("tcp", c.addr)
+	if err != nil {
+		return fmt.Errorf("creating listener %s: %w", c.addr, err)
+	}
+
+	conn, err = listener.Accept()
+	if err != nil {
+		return fmt.Errorf("connecting to server %s: %w", c.addr, err)
+	}
+	
+	c.conn = conn
+	
 	c.run()
 
 	return nil
