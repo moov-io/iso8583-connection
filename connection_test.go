@@ -628,6 +628,45 @@ func TestClient_Options(t *testing.T) {
 	})
 }
 
+func TestClientAccept(t *testing.T) {
+	var m sync.Mutex
+	callbackInvoked := false
+	addr := "127.0.0.1:8888"
+
+	opts := []connection.Option{
+		connection.ConnectionOpenedHandler(func(c *connection.Connection, err error) {
+			m.Lock()
+			callbackInvoked = true
+			require.NoError(t, err)
+			require.NotNil(t, c)
+
+			m.Unlock()
+		}),
+	}
+
+	conn, err := connection.New(addr, testSpec, readMessageLength, writeMessageLength, opts...)
+	require.NoError(t, err)
+
+	defer conn.Close()
+
+	incoming, err := connection.New(addr, testSpec, readMessageLength, writeMessageLength)
+	require.NoError(t, err)
+
+	err = conn.Accept()
+	require.NoError(t, err)
+
+	err = incoming.Connect()
+	require.NoError(t, err)
+	require.NoError(t, incoming.Close())
+
+	require.Eventually(t, func() bool {
+		m.Lock()
+		defer m.Unlock()
+
+		return callbackInvoked
+	}, 200*time.Millisecond, 10*time.Millisecond)
+}
+
 type TrackingRWCloser struct{ Used bool }
 
 func (m *TrackingRWCloser) Write(p []byte) (n int, err error) {

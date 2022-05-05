@@ -14,6 +14,9 @@ type Options struct {
 	// SendTimeout sets the timeout for a Send operation
 	SendTimeout time.Duration
 
+	// ConnectTimeout sets the timeout for a Accepting a connection when running in server mode
+	ConnectTimeout time.Duration
+
 	// IdleTime is the period at which the client will be sending ping
 	// message to the server
 	IdleTime time.Duration
@@ -46,6 +49,7 @@ type Option func(*Options) error
 func GetDefaultOptions() Options {
 	return Options{
 		SendTimeout: 30 * time.Second,
+		ConnectTimeout: 30 * time.Second,
 		IdleTime:    5 * time.Second,
 		PingHandler: nil,
 		TLSConfig:   nil,
@@ -64,6 +68,14 @@ func IdleTime(d time.Duration) Option {
 func SendTimeout(d time.Duration) Option {
 	return func(o *Options) error {
 		o.SendTimeout = d
+		return nil
+	}
+}
+
+// ConnectTimeout sets an ConnectTimeout option
+func ConnectTimeout(d time.Duration) Option {
+	return func(o *Options) error {
+		o.ConnectTimeout = d
 		return nil
 	}
 }

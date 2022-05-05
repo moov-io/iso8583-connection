@@ -148,21 +148,39 @@ func (c *Connection) Accept() error {
 			c.wg.Done()
 		}()
 
-		for {
+		chConn := make(chan net.Conn, 1)
+		chErr := make(chan error, 1)
+
+		go func() {
 			conn, err := listener.Accept()
 			if err != nil {
-				if c.Opts.ConnectionOpenedHandler != nil {
-					go c.Opts.ConnectionOpenedHandler(nil, err)
-				}
-				fmt.Printf("accepting server connection %s: %w", c.addr, err)
+				chErr <- err
 			}
+			chConn <- conn
+		}()
 
+		select {
+		case conn := <- chConn:
 			c.conn = conn
 			c.run()
 
 			if c.Opts.ConnectionOpenedHandler != nil {
 				go c.Opts.ConnectionOpenedHandler(c, nil)
 			}
+		case <-time.After(c.Opts.ConnectTimeout):
+			msg := "timed out waiting for connection"
+			if c.Opts.ConnectionOpenedHandler != nil {
+				go c.Opts.ConnectionOpenedHandler(nil, errors.New(msg))
+			}
+			fmt.Print(msg)
+			return
+		case <- chErr:
+			msg := fmt.Sprintf("accepting server connection %s: %v", c.addr, err)
+			if c.Opts.ConnectionOpenedHandler != nil {
+				go c.Opts.ConnectionOpenedHandler(nil, errors.New(msg))
+			}
+			fmt.Print(msg)
+			return
 		}
 	}()
 
