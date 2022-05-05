@@ -34,6 +34,10 @@ type Options struct {
 	// were network errors during network read/write
 	ConnectionClosedHandler func(c *Connection)
 
+	// ConnectionOpenedHandler is called when a connection is established. Used when client
+	// is operating in listen/server mode.
+	ConnectionOpenedHandler func(c *Connection, err error)
+
 	TLSConfig *tls.Config
 }
 
@@ -76,6 +80,14 @@ func PingHandler(handler func(c *Connection)) Option {
 func ConnectionClosedHandler(handler func(c *Connection)) Option {
 	return func(o *Options) error {
 		o.ConnectionClosedHandler = handler
+		return nil
+	}
+}
+
+// ConnectionOpeneddHandler sets a ConnectionOpenedHandler option
+func ConnectionOpenedHandler(handler func(c *Connection, err error)) Option {
+	return func(o *Options) error {
+		o.ConnectionOpenedHandler = handler
 		return nil
 	}
 }

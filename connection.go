@@ -142,13 +142,29 @@ func (c *Connection) Accept() error {
 		return fmt.Errorf("creating listener %s: %w", c.addr, err)
 	}
 
-	conn, err := listener.Accept()
-	if err != nil {
-		return fmt.Errorf("accepting server connection %s: %w", c.addr, err)
-	}
+	c.wg.Add(1)
+	go func() {
+		defer func() {
+			c.wg.Done()
+		}()
 
-	c.conn = conn
-	c.run()
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				if c.Opts.ConnectionOpenedHandler != nil {
+					go c.Opts.ConnectionOpenedHandler(nil, err)
+				}
+				fmt.Printf("accepting server connection %s: %w", c.addr, err)
+			}
+
+			c.conn = conn
+			c.run()
+
+			if c.Opts.ConnectionOpenedHandler != nil {
+				go c.Opts.ConnectionOpenedHandler(c, nil)
+			}
+		}
+	}()
 
 	return nil
 }
