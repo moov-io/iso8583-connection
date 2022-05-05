@@ -172,13 +172,13 @@ func (c *Connection) Accept() error {
 			if c.Opts.ConnectionAcceptHandler != nil {
 				go c.Opts.ConnectionAcceptHandler(nil, errors.New(msg))
 			}
-			fmt.Print(msg)
+			log.Print(msg)
 		case <- chErr:
 			msg := fmt.Sprintf("accepting server connection %s: %v", c.addr, err)
 			if c.Opts.ConnectionAcceptHandler != nil {
 				go c.Opts.ConnectionAcceptHandler(nil, errors.New(msg))
 			}
-			fmt.Print(msg)
+			log.Print(msg)
 		}
 	}()
 
