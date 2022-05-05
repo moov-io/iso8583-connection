@@ -137,21 +137,17 @@ func (c *Connection) Connect() error {
 // Accept accepts a connection to the server using the configured address and should be used when the other party
 // is responsible for establishing the connection.
 func (c *Connection) Accept() error {
-	var conn net.Conn
-	var err error
-
 	listener, err := net.Listen("tcp", c.addr)
 	if err != nil {
 		return fmt.Errorf("creating listener %s: %w", c.addr, err)
 	}
 
-	conn, err = listener.Accept()
+	conn, err := listener.Accept()
 	if err != nil {
-		return fmt.Errorf("connecting to server %s: %w", c.addr, err)
+		return fmt.Errorf("accepting server connection %s: %w", c.addr, err)
 	}
-	
+
 	c.conn = conn
-	
 	c.run()
 
 	return nil
