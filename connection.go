@@ -164,19 +164,19 @@ func (c *Connection) Accept() error {
 			c.conn = conn
 			c.run()
 
-			if c.Opts.ConnectionOpenedHandler != nil {
-				go c.Opts.ConnectionOpenedHandler(c, nil)
+			if c.Opts.ConnectionAcceptHandler != nil {
+				go c.Opts.ConnectionAcceptHandler(c, nil)
 			}
 		case <-time.After(c.Opts.ConnectTimeout):
 			msg := "timed out waiting for connection"
-			if c.Opts.ConnectionOpenedHandler != nil {
-				go c.Opts.ConnectionOpenedHandler(nil, errors.New(msg))
+			if c.Opts.ConnectionAcceptHandler != nil {
+				go c.Opts.ConnectionAcceptHandler(nil, errors.New(msg))
 			}
 			fmt.Print(msg)
 		case <- chErr:
 			msg := fmt.Sprintf("accepting server connection %s: %v", c.addr, err)
-			if c.Opts.ConnectionOpenedHandler != nil {
-				go c.Opts.ConnectionOpenedHandler(nil, errors.New(msg))
+			if c.Opts.ConnectionAcceptHandler != nil {
+				go c.Opts.ConnectionAcceptHandler(nil, errors.New(msg))
 			}
 			fmt.Print(msg)
 		}

@@ -14,7 +14,7 @@ type Options struct {
 	// SendTimeout sets the timeout for a Send operation
 	SendTimeout time.Duration
 
-	// ConnectTimeout sets the timeout for a Accepting a connection when running in server mode
+	// ConnectTimeout sets the timeout for a Accepting a connection when running in listen/server mode
 	ConnectTimeout time.Duration
 
 	// IdleTime is the period at which the client will be sending ping
@@ -37,9 +37,9 @@ type Options struct {
 	// were network errors during network read/write
 	ConnectionClosedHandler func(c *Connection)
 
-	// ConnectionOpenedHandler is called when a connection is established. Used when client
-	// is operating in listen/server mode.
-	ConnectionOpenedHandler func(c *Connection, err error)
+	// ConnectionAcceptHandler is called when a connection is accepted or an error or timeout
+	// occurs as part of accepting a connection. Used when client is operating in listen/server mode.
+	ConnectionAcceptHandler func(c *Connection, err error)
 
 	TLSConfig *tls.Config
 }
@@ -96,10 +96,10 @@ func ConnectionClosedHandler(handler func(c *Connection)) Option {
 	}
 }
 
-// ConnectionOpeneddHandler sets a ConnectionOpenedHandler option
-func ConnectionOpenedHandler(handler func(c *Connection, err error)) Option {
+// ConnectionAcceptHandler sets a ConnectionAcceptHandler option
+func ConnectionAcceptHandler(handler func(c *Connection, err error)) Option {
 	return func(o *Options) error {
-		o.ConnectionOpenedHandler = handler
+		o.ConnectionAcceptHandler = handler
 		return nil
 	}
 }

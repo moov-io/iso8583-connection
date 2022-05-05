@@ -634,7 +634,7 @@ func TestClientAccept(t *testing.T) {
 	addr := "127.0.0.1:8888"
 
 	opts := []connection.Option{
-		connection.ConnectionOpenedHandler(func(c *connection.Connection, err error) {
+		connection.ConnectionAcceptHandler(func(c *connection.Connection, err error) {
 			m.Lock()
 			callbackInvoked = true
 			require.NoError(t, err)
