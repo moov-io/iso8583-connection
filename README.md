@@ -57,7 +57,7 @@ inboundMessageHandler := func(c *connection.Connection, message *iso8583.Message
 	}
 }
 
-c := connection.New("127.0.0.1:9999", brandSpec, readMessageLength, writeMessageLength,
+c, err := connection.New("127.0.0.1:9999", brandSpec, readMessageLength, writeMessageLength,
 	connection.SendTimeout(100*time.Millisecond),
 	connection.IdleTime(50*time.Millisecond),
 	connection.PingHandler(pingHandler),
@@ -85,7 +85,7 @@ c, err := connection.New("127.0.0.1:443", testSpec, readMessageLength, writeMess
 
 ```go
 // see configuration options for more details
-c := connection.New("127.0.0.1:9999", brandSpec, readMessageLength, writeMessageLength,
+c, err := connection.New("127.0.0.1:9999", brandSpec, readMessageLength, writeMessageLength,
 	connection.SendTimeout(100*time.Millisecond),
 	connection.IdleTime(50*time.Millisecond),
 	connection.PingHandler(pingHandler),
