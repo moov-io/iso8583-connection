@@ -24,8 +24,10 @@ Following options are supported:
 
 * SendTimeout - sets the timeout for a Send operation
 * IdleTime - sets the period of inactivity (no messages sent) after which a ping message will be sent to the server
+* ReadTimeout - sets the period of time to wait between reads before calling ReadTimeoutHandler 
 * PingHandler - called when no message was sent during idle time. It should be safe for concurrent use.
 * InboundMessageHandler - called when a message from the server is received or no matching request for the message was found. InboundMessageHandler must be safe to be called concurrenty.
+* ReadTimeoutHandler - called when no messages have been received during specified ReadTimeout wait time. It should be safe for concurrent use.
 * ConnectionClosedHandler - is called when connection is closed by server or there were errors during network read/write that led to connection closure
 
 If you want to override default options, you can do this when creating instance of a client or setting it separately using `SetOptions(options...)` method.

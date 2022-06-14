@@ -18,9 +18,17 @@ type Options struct {
 	// message to the server
 	IdleTime time.Duration
 
+	// ReadTimeout is the maximum time between read events before the
+	// ReadTimeoutHandler is called
+	ReadTimeout time.Duration
+
 	// PingHandler is called when no message was sent during idle time
 	// it should be safe for concurrent use
 	PingHandler func(c *Connection)
+
+	// ReadTimeoutHandler is called when no message has been received within
+	// the ReadTimeout interval
+	ReadTimeoutHandler func(c *Connection)
 
 	// InboundMessageHandler is called when a message from the server is
 	// received and no matching request for it was found.
@@ -43,6 +51,7 @@ func GetDefaultOptions() Options {
 	return Options{
 		SendTimeout: 30 * time.Second,
 		IdleTime:    5 * time.Second,
+		ReadTimeout: 60 * time.Second,
 		PingHandler: nil,
 		TLSConfig:   nil,
 	}
@@ -60,6 +69,22 @@ func IdleTime(d time.Duration) Option {
 func SendTimeout(d time.Duration) Option {
 	return func(o *Options) error {
 		o.SendTimeout = d
+		return nil
+	}
+}
+
+// ReadTimeout sets an ReadTimeout option
+func ReadTimeout(d time.Duration) Option {
+	return func(o *Options) error {
+		o.ReadTimeout = d
+		return nil
+	}
+}
+
+// ReadTimeoutHandler sets a ReadTimeoutHandler option
+func ReadTimeoutHandler(handler func(c *Connection)) Option {
+	return func(o *Options) error {
+		o.ReadTimeoutHandler = handler
 		return nil
 	}
 }
