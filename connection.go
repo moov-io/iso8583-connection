@@ -34,8 +34,9 @@ type Connection struct {
 	addr       string
 	Opts       Options
 	conn       io.ReadWriteCloser
-	requestsCh chan request
-	done       chan struct{}
+	requestsCh     chan request
+	readResponseCh chan []byte
+	done           chan struct{}
 
 	// spec that will be used to unpack received messages
 	spec *iso8583.MessageSpec
@@ -74,6 +75,7 @@ func New(addr string, spec *iso8583.MessageSpec, mlReader MessageLengthReader, m
 		addr:               addr,
 		Opts:               opts,
 		requestsCh:         make(chan request),
+		readResponseCh:     make(chan []byte),
 		done:               make(chan struct{}),
 		respMap:            make(map[string]response),
 		spec:               spec,
@@ -137,6 +139,7 @@ func (c *Connection) Connect() error {
 func (c *Connection) run() {
 	go c.writeLoop()
 	go c.readLoop()
+	go c.readResponseLoop()
 }
 
 func (c *Connection) handleConnectionError(err error) {
@@ -486,7 +489,28 @@ func (c *Connection) readLoop() {
 			break
 		}
 
-		go c.handleResponse(rawMessage)
+		c.readResponseCh <- rawMessage
+	}
+
+	c.handleConnectionError(err)
+}
+
+func (c *Connection) readResponseLoop(){
+	var err error
+
+	for err == nil {
+		for {
+			select {
+			case mess := <-c.readResponseCh:
+				go c.handleResponse(mess)
+			case <-time.After(c.Opts.ReadTimeout):
+				if c.Opts.ReadTimeoutHandler != nil {
+					go c.Opts.ReadTimeoutHandler(c)
+				}
+			case <-c.done:
+				return
+			}
+		}
 	}
 
 	c.handleConnectionError(err)

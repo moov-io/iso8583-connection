@@ -573,6 +573,47 @@ func TestClient_Send(t *testing.T) {
 		_, err = c.Send(message)
 		require.Equal(t, connection.ErrConnectionClosed, err)
 	})
+
+	t.Run("ReadTimeoutHandler called after ReadTimeout elapses", func(t *testing.T) {
+		server, err := NewTestServer()
+		require.NoError(t, err)
+		defer server.Close()
+
+		readTimeoutHandler := func(c *connection.Connection) {
+			// send a ping message on timeout
+			pingMessage := iso8583.NewMessage(testSpec)
+			err := pingMessage.Marshal(baseFields{
+				MTI:          field.NewStringValue("0800"),
+				TestCaseCode: field.NewStringValue(TestCasePingCounter),
+				STAN:         field.NewStringValue(getSTAN()),
+			})
+			require.NoError(t, err)
+
+			response, err := c.Send(pingMessage)
+			require.NoError(t, err)
+
+			mti, err := response.GetMTI()
+			require.NoError(t, err)
+			require.Equal(t, "0810", mti)
+		}
+
+		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength,
+			connection.ReadTimeout(50*time.Millisecond),
+			connection.ReadTimeoutHandler(readTimeoutHandler),
+		)
+		require.NoError(t, err)
+
+		err = c.Connect()
+		require.NoError(t, err)
+		defer c.Close()
+
+		// less than 50 ms timeout, should not have any pings
+		require.Equal(t, 0, server.ReceivedPings())
+
+		time.Sleep(100 * time.Millisecond)
+		// time elapsed is greater than timeout, expect one ping
+		require.True(t, server.ReceivedPings() > 0)
+	})
 }
 
 func TestClient_Options(t *testing.T) {
