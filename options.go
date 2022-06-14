@@ -28,7 +28,7 @@ type Options struct {
 
 	// ReadTimeoutHandler is called when no message has been received within
 	// the ReadTimeout interval
-	ReadTimeoutHandler func (c *Connection)
+	ReadTimeoutHandler func(c *Connection)
 
 	// InboundMessageHandler is called when a message from the server is
 	// received and no matching request for it was found.

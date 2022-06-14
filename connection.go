@@ -31,9 +31,9 @@ type MessageLengthWriter func(w io.Writer, length int) (int, error)
 // Connection represents an ISO 8583 Connection. Connection may be used
 // by multiple goroutines simultaneously.
 type Connection struct {
-	addr       string
-	Opts       Options
-	conn       io.ReadWriteCloser
+	addr           string
+	Opts           Options
+	conn           io.ReadWriteCloser
 	requestsCh     chan request
 	readResponseCh chan []byte
 	done           chan struct{}
@@ -495,7 +495,7 @@ func (c *Connection) readLoop() {
 	c.handleConnectionError(err)
 }
 
-func (c *Connection) readResponseLoop(){
+func (c *Connection) readResponseLoop() {
 	var err error
 
 	for err == nil {
