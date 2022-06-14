@@ -51,6 +51,7 @@ func GetDefaultOptions() Options {
 	return Options{
 		SendTimeout: 30 * time.Second,
 		IdleTime:    5 * time.Second,
+		ReadTimeout: 60 * time.Second,
 		PingHandler: nil,
 		TLSConfig:   nil,
 	}

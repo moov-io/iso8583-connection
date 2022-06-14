@@ -7,7 +7,7 @@ ifeq ($(OS),Windows_NT)
 else
 	@wget -O lint-project.sh https://raw.githubusercontent.com/moov-io/infra/master/go/lint-project.sh
 	@chmod +x ./lint-project.sh
-	GOTEST_FLAGS="-v" GOLANGCI_LINTERS=gosec COVER_THRESHOLD=80.0 ./lint-project.sh
+	GOTEST_FLAGS="-v" GOLANGCI_LINTERS=gosec COVER_THRESHOLD=80.0 DISABLE_GITLEAKS="1" ./lint-project.sh
 endif
 
 .PHONY: clean
