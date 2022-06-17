@@ -7,10 +7,13 @@ import (
 	"io/ioutil"
 	"time"
 
+	"github.com/moov-io/base/log"
 	"github.com/moov-io/iso8583"
 )
 
 type Options struct {
+	Logger log.Logger
+
 	// SendTimeout sets the timeout for a Send operation
 	SendTimeout time.Duration
 
@@ -49,11 +52,20 @@ type Option func(*Options) error
 
 func GetDefaultOptions() Options {
 	return Options{
+		Logger:      log.NewNopLogger(),
 		SendTimeout: 30 * time.Second,
 		IdleTime:    5 * time.Second,
 		ReadTimeout: 60 * time.Second,
 		PingHandler: nil,
 		TLSConfig:   nil,
+	}
+}
+
+// SetLogger sets the Logger
+func SetLogger(logger log.Logger) Option {
+	return func(o *Options) error {
+		o.Logger = logger
+		return nil
 	}
 }
 

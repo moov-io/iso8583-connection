@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"sync"
 	"time"
@@ -523,14 +522,14 @@ func (c *Connection) handleResponse(rawMessage []byte) {
 	message := iso8583.NewMessage(c.spec)
 	err := message.Unpack(rawMessage)
 	if err != nil {
-		log.Printf("unpacking message: %v", err)
+		c.Opts.Logger.Error().LogErrorf("unpacking message: %v", err)
 		return
 	}
 
 	if isResponse(message) {
 		reqID, err := requestID(message)
 		if err != nil {
-			log.Printf("creating request ID: %v", err)
+			c.Opts.Logger.Error().LogErrorf("creating request ID: %v", err)
 			return
 		}
 
@@ -544,7 +543,7 @@ func (c *Connection) handleResponse(rawMessage []byte) {
 		} else if c.Opts.InboundMessageHandler != nil {
 			go c.Opts.InboundMessageHandler(c, message)
 		} else {
-			log.Printf("can't find request for ID: %s", reqID)
+			c.Opts.Logger.Warn().Logf("can't find request for ID: %s", reqID)
 		}
 	} else {
 		if c.Opts.InboundMessageHandler != nil {
