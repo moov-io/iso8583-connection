@@ -40,7 +40,7 @@ type Options struct {
 
 	// ConnectionClosedHandler is called when connection is closed by server or there
 	// were network errors during network read/write
-	ConnectionClosedHandler func(c *Connection)
+	ConnectionClosedHandler []func(c *Connection)
 
 	TLSConfig *tls.Config
 }
@@ -100,7 +100,7 @@ func PingHandler(handler func(c *Connection)) Option {
 // ConnectionClosedHandler sets a ConnectionClosedHandler option
 func ConnectionClosedHandler(handler func(c *Connection)) Option {
 	return func(o *Options) error {
-		o.ConnectionClosedHandler = handler
+		o.ConnectionClosedHandler = append(o.ConnectionClosedHandler, handler)
 		return nil
 	}
 }
