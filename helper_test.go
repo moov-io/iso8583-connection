@@ -87,7 +87,7 @@ var testSpec *iso8583.MessageSpec = &iso8583.MessageSpec{
 type testServer struct {
 	Addr string
 
-	server *server.Server
+	Server *server.Server
 
 	// to protect following
 	mutex         sync.Mutex
@@ -196,7 +196,7 @@ func NewTestServer() (*testServer, error) {
 	}
 
 	srv = &testServer{
-		server: server,
+		Server: server,
 		Addr:   server.Addr,
 	}
 
@@ -204,5 +204,5 @@ func NewTestServer() (*testServer, error) {
 }
 
 func (t *testServer) Close() {
-	t.server.Close()
+	t.Server.Close()
 }

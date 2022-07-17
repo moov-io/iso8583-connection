@@ -9,6 +9,8 @@ import (
 	connection "github.com/moov-io/iso8583-connection"
 )
 
+type ConnectHandler func(conn net.Conn)
+
 // Server is a simple iso8583 server implementation currently used to test
 // iso8583-client and most probably to be used for iso8583-test-harness
 type Server struct {
@@ -29,6 +31,10 @@ type Server struct {
 	// writeMessageLength is the function that encodes message length and
 	// writes message length header into the connection
 	writeMessageLength connection.MessageLengthWriter
+
+	mu              sync.Mutex
+	ConnectHandlers []ConnectHandler
+	isClosed        bool
 }
 
 func New(spec *iso8583.MessageSpec, mlReader connection.MessageLengthReader, mlWriter connection.MessageLengthWriter, connectionOpts ...connection.Option) *Server {
@@ -40,6 +46,12 @@ func New(spec *iso8583.MessageSpec, mlReader connection.MessageLengthReader, mlW
 		readMessageLength:  mlReader,
 		writeMessageLength: mlWriter,
 	}
+}
+
+func (s *Server) AddConnectionHandler(h ConnectHandler) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ConnectHandlers = append(s.ConnectHandlers, h)
 }
 
 func (s *Server) Start(addr string) error {
@@ -73,6 +85,15 @@ func (s *Server) Start(addr string) error {
 
 			s.wg.Add(1)
 			go func() {
+				// notify all handlers about new connection
+				s.mu.Lock()
+				if s.ConnectHandlers != nil && len(s.ConnectHandlers) > 0 {
+					for _, h := range s.ConnectHandlers {
+						go h(conn)
+					}
+				}
+				defer s.mu.Unlock()
+
 				err := s.handleConnection(conn)
 				if err != nil {
 					fmt.Printf("Error handling connection: %s\n", err.Error())
@@ -86,6 +107,12 @@ func (s *Server) Start(addr string) error {
 }
 
 func (s *Server) Close() {
+	s.mu.Lock()
+	if s.isClosed {
+		s.mu.Unlock()
+		return
+	}
+
 	close(s.closeCh)
 
 	if s.ln != nil {
@@ -93,6 +120,8 @@ func (s *Server) Close() {
 	}
 
 	s.wg.Wait()
+
+	s.isClosed = true
 }
 
 func (s *Server) handleConnection(conn net.Conn) error {
