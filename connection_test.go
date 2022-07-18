@@ -343,6 +343,11 @@ func TestClient_Send(t *testing.T) {
 			require.NoError(t, err)
 
 			response, err := c.Send(pingMessage)
+			// we may get error because test closed server and connection
+			// it it's a connection closed error - that's ok. just return
+			if err != nil && errors.Is(err, connection.ErrConnectionClosed) {
+				return
+			}
 			require.NoError(t, err)
 
 			mti, err := response.GetMTI()
@@ -690,10 +695,10 @@ func TestClient_Options(t *testing.T) {
 		require.NoError(t, err)
 
 		// we can get reply or connection can be closed here too
-		// but because in test server we have a tiny delay before
-		// we close the connection, we are safe here to get no err
 		_, err = c.Send(message)
-		require.NoError(t, err)
+		if err != nil && !errors.Is(err, connection.ErrConnectionClosed) {
+			require.NoError(t, err)
+		}
 
 		require.Eventually(t, func() bool {
 			m.Lock()
