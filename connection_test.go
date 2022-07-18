@@ -1,11 +1,13 @@
 package connection_test
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -590,6 +592,11 @@ func TestClient_Send(t *testing.T) {
 			require.NoError(t, err)
 
 			response, err := c.Send(pingMessage)
+			// we may get error because test closed server and connection
+			// it it's a connection closed error - that's ok. just return
+			if err != nil && errors.Is(err, connection.ErrConnectionClosed) {
+				return
+			}
 			require.NoError(t, err)
 
 			mti, err := response.GetMTI()
@@ -610,13 +617,43 @@ func TestClient_Send(t *testing.T) {
 		// less than 50 ms timeout, should not have any pings
 		require.Equal(t, 0, server.ReceivedPings())
 
-		time.Sleep(100 * time.Millisecond)
 		// time elapsed is greater than timeout, expect one ping
-		require.True(t, server.ReceivedPings() > 0)
+		require.Eventually(t, func() bool {
+			return server.ReceivedPings() > 0
+		}, 200*time.Millisecond, 50*time.Millisecond, "no ping messages were sent after read timeout")
 	})
 }
 
 func TestClient_Options(t *testing.T) {
+	t.Run("ErrorHandler is called when connection is closed", func(t *testing.T) {
+		server, err := NewTestServer()
+		require.NoError(t, err)
+
+		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength)
+		require.NoError(t, err)
+
+		var callsCounter int32
+
+		errorHandler := func(err error) {
+			atomic.AddInt32(&callsCounter, 1)
+		}
+		c.SetOptions(connection.ErrorHandler(errorHandler))
+
+		err = c.Connect()
+		require.NoError(t, err)
+		defer c.Close()
+		require.Equal(t, int32(0), atomic.LoadInt32(&callsCounter))
+
+		// when we close server
+		server.Close()
+
+		// then errorHandler should be called at least once
+		require.Eventually(t, func() bool {
+			return atomic.LoadInt32(&callsCounter) > 0
+		}, 500*time.Millisecond, 50*time.Millisecond, "error handler was never called")
+
+	})
+
 	t.Run("ClosedHandler is called when connection is closed", func(t *testing.T) {
 		server, err := NewTestServer()
 		require.NoError(t, err)

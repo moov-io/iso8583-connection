@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"sync"
 	"time"
@@ -142,6 +141,15 @@ func (c *Connection) run() {
 	go c.readResponseLoop()
 }
 
+func (c *Connection) handleError(err error) {
+	if c.Opts.ErrorHandler == nil {
+		return
+	}
+
+	go c.Opts.ErrorHandler(err)
+}
+
+// when connection fails it cleans up all the things
 func (c *Connection) handleConnectionError(err error) {
 	// lock to check and update `closing`
 	c.mutex.Lock()
@@ -445,6 +453,7 @@ func (c *Connection) writeLoop() {
 
 			_, err = c.conn.Write([]byte(req.rawMessage))
 			if err != nil {
+				c.handleError(fmt.Errorf("writing into connection: %w", err))
 				break
 			}
 
@@ -479,6 +488,7 @@ func (c *Connection) readLoop() {
 	for {
 		messageLength, err = c.readMessageLength(r)
 		if err != nil {
+			c.handleError(fmt.Errorf("reading message length: %w", err))
 			break
 		}
 
@@ -486,6 +496,7 @@ func (c *Connection) readLoop() {
 		rawMessage := make([]byte, messageLength)
 		_, err = io.ReadFull(r, rawMessage)
 		if err != nil {
+			c.handleError(fmt.Errorf("reading message from connection: %w", err))
 			break
 		}
 
@@ -496,24 +507,18 @@ func (c *Connection) readLoop() {
 }
 
 func (c *Connection) readResponseLoop() {
-	var err error
-
-	for err == nil {
-		for {
-			select {
-			case mess := <-c.readResponseCh:
-				go c.handleResponse(mess)
-			case <-time.After(c.Opts.ReadTimeout):
-				if c.Opts.ReadTimeoutHandler != nil {
-					go c.Opts.ReadTimeoutHandler(c)
-				}
-			case <-c.done:
-				return
+	for {
+		select {
+		case mess := <-c.readResponseCh:
+			go c.handleResponse(mess)
+		case <-time.After(c.Opts.ReadTimeout):
+			if c.Opts.ReadTimeoutHandler != nil {
+				go c.Opts.ReadTimeoutHandler(c)
 			}
+		case <-c.done:
+			return
 		}
 	}
-
-	c.handleConnectionError(err)
 }
 
 // handleResponse unpacks the message and then sends it to the reply channel
@@ -523,14 +528,14 @@ func (c *Connection) handleResponse(rawMessage []byte) {
 	message := iso8583.NewMessage(c.spec)
 	err := message.Unpack(rawMessage)
 	if err != nil {
-		log.Printf("unpacking message: %v", err)
+		c.handleError(fmt.Errorf("unpacking message: %w", err))
 		return
 	}
 
 	if isResponse(message) {
 		reqID, err := requestID(message)
 		if err != nil {
-			log.Printf("creating request ID: %v", err)
+			c.handleError(fmt.Errorf("creating request ID:  %w", err))
 			return
 		}
 
@@ -544,7 +549,7 @@ func (c *Connection) handleResponse(rawMessage []byte) {
 		} else if c.Opts.InboundMessageHandler != nil {
 			go c.Opts.InboundMessageHandler(c, message)
 		} else {
-			log.Printf("can't find request for ID: %s", reqID)
+			c.handleError(fmt.Errorf("can't find request for ID: %s", reqID))
 		}
 	} else {
 		if c.Opts.InboundMessageHandler != nil {
