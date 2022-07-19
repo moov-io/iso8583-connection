@@ -118,7 +118,7 @@ const (
 	TestCaseRespondWithExtraField string = "005"
 )
 
-func NewTestServer() (*testServer, error) {
+func NewTestServerWithAddr(addr string) (*testServer, error) {
 	var srv *testServer
 
 	// define logic for our test server
@@ -190,7 +190,7 @@ func NewTestServer() (*testServer, error) {
 
 	server := server.New(testSpec, readMessageLength, writeMessageLength, connection.InboundMessageHandler(testServerLogic))
 	// start on random port
-	err := server.Start("127.0.0.1:")
+	err := server.Start(addr)
 	if err != nil {
 		return nil, err
 	}
@@ -201,6 +201,10 @@ func NewTestServer() (*testServer, error) {
 	}
 
 	return srv, nil
+}
+
+func NewTestServer() (*testServer, error) {
+	return NewTestServerWithAddr("127.0.0.1:")
 }
 
 func (t *testServer) Close() {

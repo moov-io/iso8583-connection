@@ -78,9 +78,17 @@ func (s *Server) Start(addr string) error {
 					return
 				default:
 					// TODO: better handle errors
-					fmt.Printf("Error accepting connection: %s\n", err.Error())
+					fmt.Printf("Accepting connection: %s\n", err.Error())
 					return
 				}
+			}
+
+			// check if server was closed
+			select {
+			case <-s.closeCh:
+				return
+			default:
+				// continue handling the connection
 			}
 
 			s.wg.Add(1)
@@ -92,7 +100,7 @@ func (s *Server) Start(addr string) error {
 						go h(conn)
 					}
 				}
-				defer s.mu.Unlock()
+				s.mu.Unlock()
 
 				err := s.handleConnection(conn)
 				if err != nil {
@@ -122,6 +130,7 @@ func (s *Server) Close() {
 	s.wg.Wait()
 
 	s.isClosed = true
+	s.mu.Unlock()
 }
 
 func (s *Server) handleConnection(conn net.Conn) error {
