@@ -12,10 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TODO
-// pass retries, wait time, etc.
-// new Pool should have callback for when it was closed (when all connections were closed)
-// Pool when it creates connection from factory should set own handler for closed connection
 func TestPool(t *testing.T) {
 	// Given
 	// servers started

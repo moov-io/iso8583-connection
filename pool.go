@@ -211,14 +211,23 @@ func (p *Pool) Close() error {
 	// when we lock and start closing all connections
 	p.wg.Wait()
 
-	// close all connections concurrently
 	p.mu.Lock()
+
+	// close all connections concurrently
+	var wg sync.WaitGroup
+	wg.Add(len(p.connections))
+
 	for _, conn := range p.connections {
-		err := conn.Close()
-		if err != nil {
-			p.handleError(fmt.Errorf("closing connection on pool close: %w", err))
-		}
+		go func() {
+			defer wg.Done()
+			err := conn.Close()
+			if err != nil {
+				p.handleError(fmt.Errorf("closing connection on pool close: %w", err))
+			}
+		}()
+
 	}
+	wg.Wait()
 
 	// remove all connections
 	p.connections = make([]*Connection, 0)
