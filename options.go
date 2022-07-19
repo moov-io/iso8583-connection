@@ -11,6 +11,9 @@ import (
 )
 
 type Options struct {
+	// ConnectTimeout sets the timeout for establishing new connections.
+	ConnectTimeout time.Duration
+
 	// SendTimeout sets the timeout for a Send operation
 	SendTimeout time.Duration
 
@@ -40,7 +43,7 @@ type Options struct {
 
 	// ConnectionClosedHandler is called when connection is closed by server or there
 	// were network errors during network read/write
-	ConnectionClosedHandler func(c *Connection)
+	ConnectionClosedHandler []func(c *Connection)
 
 	TLSConfig *tls.Config
 }
@@ -49,11 +52,12 @@ type Option func(*Options) error
 
 func GetDefaultOptions() Options {
 	return Options{
-		SendTimeout: 30 * time.Second,
-		IdleTime:    5 * time.Second,
-		ReadTimeout: 60 * time.Second,
-		PingHandler: nil,
-		TLSConfig:   nil,
+		ConnectTimeout: 10 * time.Second,
+		SendTimeout:    30 * time.Second,
+		IdleTime:       5 * time.Second,
+		ReadTimeout:    60 * time.Second,
+		PingHandler:    nil,
+		TLSConfig:      nil,
 	}
 }
 
@@ -69,6 +73,14 @@ func IdleTime(d time.Duration) Option {
 func SendTimeout(d time.Duration) Option {
 	return func(o *Options) error {
 		o.SendTimeout = d
+		return nil
+	}
+}
+
+// ConnectTimeout sets an SendTimeout option
+func ConnectTimeout(d time.Duration) Option {
+	return func(o *Options) error {
+		o.ConnectTimeout = d
 		return nil
 	}
 }
@@ -100,7 +112,7 @@ func PingHandler(handler func(c *Connection)) Option {
 // ConnectionClosedHandler sets a ConnectionClosedHandler option
 func ConnectionClosedHandler(handler func(c *Connection)) Option {
 	return func(o *Options) error {
-		o.ConnectionClosedHandler = handler
+		o.ConnectionClosedHandler = append(o.ConnectionClosedHandler, handler)
 		return nil
 	}
 }

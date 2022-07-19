@@ -598,7 +598,7 @@ func TestClient_Send(t *testing.T) {
 		}
 
 		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength,
-			connection.ReadTimeout(50*time.Millisecond),
+			connection.ReadTimeout(100*time.Millisecond),
 			connection.ReadTimeoutHandler(readTimeoutHandler),
 		)
 		require.NoError(t, err)
@@ -610,9 +610,10 @@ func TestClient_Send(t *testing.T) {
 		// less than 50 ms timeout, should not have any pings
 		require.Equal(t, 0, server.ReceivedPings())
 
-		time.Sleep(100 * time.Millisecond)
 		// time elapsed is greater than timeout, expect one ping
-		require.True(t, server.ReceivedPings() > 0)
+		require.Eventually(t, func() bool {
+			return server.ReceivedPings() > 0
+		}, 200*time.Millisecond, 50*time.Millisecond, "no ping was received by server")
 	})
 }
 
