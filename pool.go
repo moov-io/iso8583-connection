@@ -218,13 +218,13 @@ func (p *Pool) Close() error {
 	wg.Add(len(p.connections))
 
 	for _, conn := range p.connections {
-		go func() {
+		go func(conn *Connection) {
 			defer wg.Done()
 			err := conn.Close()
 			if err != nil {
 				p.handleError(fmt.Errorf("closing connection on pool close: %w", err))
 			}
-		}()
+		}(conn)
 
 	}
 	wg.Wait()
