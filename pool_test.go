@@ -8,9 +8,7 @@ import (
 
 	"time"
 
-	"github.com/moov-io/iso8583"
 	connection "github.com/moov-io/iso8583-connection"
-	"github.com/moov-io/iso8583/field"
 	"github.com/stretchr/testify/require"
 )
 
@@ -33,7 +31,6 @@ func TestPool(t *testing.T) {
 	for i := 0; i < serversToStart; i++ {
 		server, err := NewTestServer()
 		require.NoError(t, err)
-		defer server.Close()
 
 		addrs = append(addrs, server.Addr)
 		servers = append(servers, server)
@@ -43,6 +40,13 @@ func TestPool(t *testing.T) {
 			atomic.AddInt32(&connectionsCnt, 1)
 		})
 	}
+
+	// close all servers on exit
+	defer func() {
+		for _, server := range servers {
+			server.Close()
+		}
+	}()
 
 	// And a factory method that will build connection for the pool
 	factory := func(addr string) (*connection.Connection, error) {
@@ -55,18 +59,13 @@ func TestPool(t *testing.T) {
 		// }
 		// and inside factory, just pick your config based on the address
 		// tlsConfig := tlsConfigs[addr]
-
-		opts := []connection.Option{
-			connection.SendTimeout(5 * time.Second),
-			connection.IdleTime(5 * time.Second),
-		}
-
 		c, err := connection.New(
 			addr,
 			testSpec,
 			readMessageLength,
 			writeMessageLength,
-			opts...,
+			// set shot connect timeout so we can test re-connects
+			connection.ConnectTimeout(500*time.Millisecond),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("building iso 8583 connection: %w", err)
@@ -76,9 +75,13 @@ func TestPool(t *testing.T) {
 	}
 
 	// And the pool of connections
-	pool := connection.NewPool(factory, addrs)
+	// one of our tests
+	reconnectWait := 500 * time.Millisecond
+	pool, err := connection.NewPool(factory, addrs, connection.PoolReconnectWait(reconnectWait))
+	require.NoError(t, err)
+	defer pool.Close()
 
-	t.Run("Connect() establishes all connections", func(t *testing.T) {
+	t.Run("Connect() establishes connections to all servers", func(t *testing.T) {
 		// When we Connect pool
 		err := pool.Connect()
 		require.NoError(t, err)
@@ -86,8 +89,8 @@ func TestPool(t *testing.T) {
 		// Then pool builds and connects connections to all servers
 		require.Eventually(t, func() bool {
 			// we expect connectionsCnt counter to be incremented by both servers
-			return connectionsCnt == int32(serversToStart)
-		}, 500*time.Millisecond, 50*time.Millisecond, "%d expected connections established, but got %d", serversToStart, connectionsCnt)
+			return atomic.LoadInt32(&connectionsCnt) == int32(serversToStart)
+		}, 500*time.Millisecond, 50*time.Millisecond, "%d expected connections established, but got %d", serversToStart, atomic.LoadInt32(&connectionsCnt))
 
 		// And pool has serversCnt connections
 		require.Len(t, pool.Connections(), serversToStart)
@@ -119,58 +122,95 @@ func TestPool(t *testing.T) {
 		}
 	})
 
-	t.Run("when one of the connections is closed it creates new connection for the same address", func(t *testing.T) {
-		numOfConnectionsBeforeClose := len(pool.Connections())
+	t.Run("when one of the servers is down it re-connects when server returns", func(t *testing.T) {
+		connectionsCntBeforeServerShutdown := len(pool.Connections())
 
-		// trigger server to close connection
-		message := iso8583.NewMessage(testSpec)
-		err := message.Marshal(baseFields{
-			MTI:          field.NewStringValue("0800"),
-			TestCaseCode: field.NewStringValue(TestCaseCloseConnection),
-			STAN:         field.NewStringValue(getSTAN()),
-		})
-		require.NoError(t, err)
-
-		conn, err := pool.Get()
-		require.NoError(t, err)
-
-		_, err = conn.Send(message)
-		require.NoError(t, err)
-
-		connectionsCntBeforeReConnect := connectionsCnt
-
-		// let our pool to detect closed connection and remove it from the pool
-		require.Eventually(t, func() bool {
-			return len(pool.Connections()) == numOfConnectionsBeforeClose-1
-		}, 500*time.Millisecond, 50*time.Millisecond, "expected one less connection, total %d connections, expected: %d", len(pool.Connections()), numOfConnectionsBeforeClose-1)
-
-		// Then pool should recreate connection after p.WaitBeforeReconnect
-		require.Eventually(t, func() bool {
-			// we expect connectionsCnt counter to be incremented by both servers
-			return connectionsCnt == connectionsCntBeforeReConnect+1
-		}, 500*time.Millisecond, 50*time.Millisecond, "expected %d connections count, but got %d", connectionsCntBeforeReConnect+1, connectionsCnt)
-
-		// And pool has serversCnt connections
-		require.Len(t, pool.Connections(), serversToStart)
-
-		// let's close first server - we should see how we try to re-connect
+		// when we shutdown one of the servers
 		servers[0].Close()
 
-		time.Sleep(20 * time.Second)
+		// then we have one less connection
+		require.Eventually(t, func() bool {
+			return len(pool.Connections()) == connectionsCntBeforeServerShutdown-1
+		}, 500*time.Millisecond, 50*time.Millisecond, "expect to have one less connection")
+
+		// when we start server again
+		server, err := NewTestServerWithAddr(servers[0].Addr)
+		require.NoError(t, err)
+
+		// so we will not forget to close server on exit
+		servers[0] = server
+
+		// then we have one more connection (the same as it was before
+		// we shut down the server)
+		require.Eventually(t, func() bool {
+			return len(pool.Connections()) == connectionsCntBeforeServerShutdown
+		}, 2000*time.Millisecond, 50*time.Millisecond, "expect to have one less connection")
 	})
 
-	t.Run("when all connections are closed it calls ConnectionsClosedHandler", func(t *testing.T) {
-	})
-
-	// close them concurrently
 	t.Run("Close() closes all connections", func(t *testing.T) {
+		require.NotZero(t, pool.Connections())
 
+		// when we close the pool
+		err := pool.Close()
+		require.NoError(t, err)
+
+		// then pool has no connections
+		require.Zero(t, pool.Connections())
 	})
-
-	// when no connections, Get returns error ErrorEmptyPool
 
 	// when pool is closed
-	t.Run("Get() returns error ErrorPoolClosed", func(t *testing.T) {})
-	t.Run("Connections() returns empty slice", func(t *testing.T) {})
-	t.Run("Connect() establishes all coonnections", func(t *testing.T) {})
+	t.Run("Get() returns error when no connections", func(t *testing.T) {
+		// given pool is closed
+		err := pool.Close()
+		require.NoError(t, err)
+
+		_, err = pool.Get()
+		require.EqualError(t, err, "pool is closed")
+	})
+
+	t.Run("Connect() returns error when number or established connections is less than MinConnections", func(t *testing.T) {
+		// we have only 2 servers running, so we can't establish 3 connections
+		pool, err := connection.NewPool(factory, addrs, connection.PoolMinConnections(3))
+		require.NoError(t, err)
+
+		err = pool.Connect()
+		defer pool.Close()
+
+		require.EqualError(t, err, "minimum 3 connections is required, established: 2")
+	})
+
+	t.Run("Connect() runs when established >= MinConnections and later re-establish failed connections", func(t *testing.T) {
+		// when we shutdown one of the servers
+		servers[0].Close()
+
+		// we have only 1 of serversToStart servers running, so serversToStart-1 connection should be established
+		pool, err := connection.NewPool(
+			factory,
+			addrs,
+			connection.PoolMinConnections(1),
+			connection.PoolReconnectWait(reconnectWait),
+		)
+		require.NoError(t, err)
+
+		// when we connect
+		err = pool.Connect()
+		// no error should be returned here as MinConnections is 1
+		require.NoError(t, err)
+		defer pool.Close()
+
+		require.Equal(t, len(pool.Connections()), serversToStart-1)
+
+		// when server gets back
+		server, err := NewTestServerWithAddr(servers[0].Addr)
+		require.NoError(t, err)
+
+		// return server back to the list so we will not forget to
+		// close server on exit
+		servers[0] = server
+
+		// then connection should be established
+		require.Eventually(t, func() bool {
+			return len(pool.Connections()) == serversToStart
+		}, 2000*time.Millisecond, 50*time.Millisecond, "expect to have one less connection")
+	})
 }

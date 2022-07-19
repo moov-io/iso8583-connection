@@ -118,10 +118,12 @@ func (c *Connection) Connect() error {
 		return nil
 	}
 
+	d := &net.Dialer{Timeout: c.Opts.ConnectTimeout}
+
 	if c.Opts.TLSConfig != nil {
-		conn, err = tls.Dial("tcp", c.Addr, c.Opts.TLSConfig)
+		conn, err = tls.DialWithDialer(d, "tcp", c.Addr, c.Opts.TLSConfig)
 	} else {
-		conn, err = net.Dial("tcp", c.Addr)
+		conn, err = d.Dial("tcp", c.Addr)
 	}
 
 	if err != nil {
@@ -525,14 +527,12 @@ func (c *Connection) handleResponse(rawMessage []byte) {
 	message := iso8583.NewMessage(c.spec)
 	err := message.Unpack(rawMessage)
 	if err != nil {
-		log.Printf("unpacking message: %v", err)
 		return
 	}
 
 	if isResponse(message) {
 		reqID, err := requestID(message)
 		if err != nil {
-			log.Printf("creating request ID: %v", err)
 			return
 		}
 
