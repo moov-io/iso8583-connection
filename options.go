@@ -118,6 +118,8 @@ func InboundMessageHandler(handler func(c *Connection, message *iso8583.Message)
 }
 
 // ErrorHandler sets an ErrorHandler option
+// in many cases err will be an instance of the `SafeError`
+// for more details: https://github.com/moov-io/iso8583/pull/185
 func ErrorHandler(h func(err error)) Option {
 	return func(opts *Options) error {
 		opts.ErrorHandler = h
