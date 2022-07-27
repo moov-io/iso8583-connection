@@ -1,18 +1,22 @@
 package connection_test
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/moov-io/iso8583"
 	connection "github.com/moov-io/iso8583-connection"
 	"github.com/moov-io/iso8583-connection/server"
+	"github.com/moov-io/iso8583/encoding"
 	"github.com/moov-io/iso8583/field"
+	"github.com/moov-io/iso8583/prefix"
 	"github.com/stretchr/testify/require"
 )
 
@@ -54,7 +58,9 @@ func TestClient_Connect(t *testing.T) {
 	})
 
 	t.Run("with TLS", func(t *testing.T) {
-		srv := http.Server{}
+		srv := http.Server{
+			ReadHeaderTimeout: 1 * time.Second,
+		}
 		ln, err := net.Listen("tcp", "127.0.0.1:0")
 		require.NoError(t, err)
 
@@ -123,6 +129,93 @@ func TestClient_Send(t *testing.T) {
 		mti, err := response.GetMTI()
 		require.NoError(t, err)
 		require.Equal(t, "0810", mti)
+
+		require.NoError(t, c.Close())
+	})
+
+	t.Run("returns UnpackError with RawMessage when it fails to unpack message", func(t *testing.T) {
+		// Given
+		// connection with specification different from server
+		// field 63 is not defined in the following spec
+		var differentSpec *iso8583.MessageSpec = &iso8583.MessageSpec{
+			Name: "spec with different fields",
+			Fields: map[int]field.Field{
+				0: field.NewString(&field.Spec{
+					Length:      4,
+					Description: "Message Type Indicator",
+					Enc:         encoding.ASCII,
+					Pref:        prefix.ASCII.Fixed,
+				}),
+				1: field.NewBitmap(&field.Spec{
+					Length:      8,
+					Description: "Bitmap",
+					Enc:         encoding.Binary,
+					Pref:        prefix.Binary.Fixed,
+				}),
+				2: field.NewString(&field.Spec{
+					Length:      3,
+					Description: "Test Case Code",
+					Enc:         encoding.ASCII,
+					Pref:        prefix.ASCII.Fixed,
+				}),
+				11: field.NewString(&field.Spec{
+					Length:      6,
+					Description: "Systems Trace Audit Number (STAN)",
+					Enc:         encoding.ASCII,
+					Pref:        prefix.ASCII.Fixed,
+				}),
+			},
+		}
+		c, err := connection.New(server.Addr, differentSpec, readMessageLength, writeMessageLength)
+		require.NoError(t, err)
+
+		var handledError error
+		var mu sync.Mutex
+
+		c.SetOptions(
+			connection.ErrorHandler(func(err error) {
+				mu.Lock()
+				defer mu.Unlock()
+				handledError = err
+			}),
+			connection.SendTimeout(100*time.Millisecond),
+		)
+
+		// and connection
+		err = c.Connect()
+		require.NoError(t, err)
+
+		// and message that will trigger response with extra field that differentSpec does not have
+		message := iso8583.NewMessage(differentSpec)
+		err = message.Marshal(baseFields{
+			MTI:          field.NewStringValue("0800"),
+			TestCaseCode: field.NewStringValue(TestCaseRespondWithExtraField),
+			STAN:         field.NewStringValue(getSTAN()),
+		})
+		require.NoError(t, err)
+
+		// when we send iso message to the server
+		// we do not wait for the response, as mesage will timeout
+		// c.Close() will wait for c.Send to clomplete
+		go func() {
+			_, err := c.Send(message)
+			require.ErrorIs(t, err, connection.ErrSendTimeout)
+		}()
+
+		// then we get ErrUnpack into the error handler
+		require.Eventually(t, func() bool {
+			mu.Lock()
+			defer mu.Unlock()
+
+			var unpackErr *connection.ErrUnpack
+			if errors.As(handledError, &unpackErr) {
+				require.EqualError(t, handledError, "failed to unpack message")
+				require.EqualError(t, unpackErr, "failed to unpack field 63: no specification found")
+				require.NotEmpty(t, unpackErr.RawMessage)
+				return true
+			}
+			return false
+		}, 1*time.Second, 100*time.Millisecond, "expect handledError to be set into UnpackError")
 
 		require.NoError(t, c.Close())
 	})
@@ -341,6 +434,11 @@ func TestClient_Send(t *testing.T) {
 			require.NoError(t, err)
 
 			response, err := c.Send(pingMessage)
+			// we may get error because test closed server and connection
+			// it it's a connection closed error - that's ok. just return
+			if err != nil && errors.Is(err, connection.ErrConnectionClosed) {
+				return
+			}
 			require.NoError(t, err)
 
 			mti, err := response.GetMTI()
@@ -590,6 +688,11 @@ func TestClient_Send(t *testing.T) {
 			require.NoError(t, err)
 
 			response, err := c.Send(pingMessage)
+			// we may get error because test closed server and connection
+			// it it's a connection closed error - that's ok. just return
+			if err != nil && errors.Is(err, connection.ErrConnectionClosed) {
+				return
+			}
 			require.NoError(t, err)
 
 			mti, err := response.GetMTI()
@@ -610,13 +713,44 @@ func TestClient_Send(t *testing.T) {
 		// less than 50 ms timeout, should not have any pings
 		require.Equal(t, 0, server.ReceivedPings())
 
-		time.Sleep(100 * time.Millisecond)
 		// time elapsed is greater than timeout, expect one ping
-		require.True(t, server.ReceivedPings() > 0)
+		require.Eventually(t, func() bool {
+			return server.ReceivedPings() > 0
+		}, 200*time.Millisecond, 50*time.Millisecond, "no ping messages were sent after read timeout")
 	})
+
 }
 
 func TestClient_Options(t *testing.T) {
+	t.Run("ErrorHandler is called when connection is closed", func(t *testing.T) {
+		server, err := NewTestServer()
+		require.NoError(t, err)
+
+		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength)
+		require.NoError(t, err)
+
+		var callsCounter int32
+
+		errorHandler := func(err error) {
+			atomic.AddInt32(&callsCounter, 1)
+		}
+		c.SetOptions(connection.ErrorHandler(errorHandler))
+
+		err = c.Connect()
+		require.NoError(t, err)
+		defer c.Close()
+		require.Equal(t, int32(0), atomic.LoadInt32(&callsCounter))
+
+		// when we close server
+		server.Close()
+
+		// then errorHandler should be called at least once
+		require.Eventually(t, func() bool {
+			return atomic.LoadInt32(&callsCounter) > 0
+		}, 500*time.Millisecond, 50*time.Millisecond, "error handler was never called")
+
+	})
+
 	t.Run("ClosedHandler is called when connection is closed", func(t *testing.T) {
 		server, err := NewTestServer()
 		require.NoError(t, err)
@@ -653,10 +787,10 @@ func TestClient_Options(t *testing.T) {
 		require.NoError(t, err)
 
 		// we can get reply or connection can be closed here too
-		// but because in test server we have a tiny delay before
-		// we close the connection, we are safe here to get no err
 		_, err = c.Send(message)
-		require.NoError(t, err)
+		if err != nil && !errors.Is(err, connection.ErrConnectionClosed) {
+			require.NoError(t, err)
+		}
 
 		require.Eventually(t, func() bool {
 			m.Lock()

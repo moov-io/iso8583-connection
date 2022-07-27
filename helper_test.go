@@ -74,6 +74,12 @@ var testSpec *iso8583.MessageSpec = &iso8583.MessageSpec{
 			Enc:         encoding.ASCII,
 			Pref:        prefix.ASCII.Fixed,
 		}),
+		63: field.NewString(&field.Spec{
+			Length:      5,
+			Description: "Extra field",
+			Enc:         encoding.ASCII,
+			Pref:        prefix.ASCII.Fixed,
+		}),
 	},
 }
 
@@ -107,8 +113,9 @@ const (
 	TestCasePingCounter     string = "002"
 	// for sending incoming message with same STAN as
 	// received message
-	TestCaseSameSTANRequest string = "003"
-	TestCaseCloseConnection string = "004"
+	TestCaseSameSTANRequest       string = "003"
+	TestCaseCloseConnection       string = "004"
+	TestCaseRespondWithExtraField string = "005"
 )
 
 func NewTestServer() (*testServer, error) {
@@ -171,6 +178,9 @@ func NewTestServer() (*testServer, error) {
 				time.Sleep(50 * time.Millisecond)
 				c.Close()
 			case TestCaseReply:
+				c.Reply(message)
+			case TestCaseRespondWithExtraField:
+				message.Field(63, "EXTRA")
 				c.Reply(message)
 			default:
 				c.Reply(message)

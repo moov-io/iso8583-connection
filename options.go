@@ -43,6 +43,10 @@ type Options struct {
 	ConnectionClosedHandler func(c *Connection)
 
 	TLSConfig *tls.Config
+
+	// ErrorHandler is called in a goroutine with the errors that can't be
+	// returned to the caller
+	ErrorHandler func(err error)
 }
 
 type Option func(*Options) error
@@ -109,6 +113,16 @@ func ConnectionClosedHandler(handler func(c *Connection)) Option {
 func InboundMessageHandler(handler func(c *Connection, message *iso8583.Message)) Option {
 	return func(o *Options) error {
 		o.InboundMessageHandler = handler
+		return nil
+	}
+}
+
+// ErrorHandler sets an ErrorHandler option
+// in many cases err will be an instance of the `SafeError`
+// for more details: https://github.com/moov-io/iso8583/pull/185
+func ErrorHandler(h func(err error)) Option {
+	return func(opts *Options) error {
+		opts.ErrorHandler = h
 		return nil
 	}
 }
