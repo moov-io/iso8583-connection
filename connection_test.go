@@ -58,7 +58,9 @@ func TestClient_Connect(t *testing.T) {
 	})
 
 	t.Run("with TLS", func(t *testing.T) {
-		srv := http.Server{}
+		srv := http.Server{
+			ReadHeaderTimeout: 1 * time.Second,
+		}
 		ln, err := net.Listen("tcp", "127.0.0.1:0")
 		require.NoError(t, err)
 
