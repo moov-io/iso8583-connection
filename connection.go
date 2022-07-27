@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/moov-io/iso8583"
+	"github.com/moov-io/iso8583/utils"
 )
 
 var (
@@ -453,7 +454,7 @@ func (c *Connection) writeLoop() {
 
 			_, err = c.conn.Write([]byte(req.rawMessage))
 			if err != nil {
-				c.handleError(fmt.Errorf("writing into connection: %w", err))
+				c.handleError(utils.NewSafeError(err, "failed to write message into connection"))
 				break
 			}
 
@@ -488,7 +489,7 @@ func (c *Connection) readLoop() {
 	for {
 		messageLength, err = c.readMessageLength(r)
 		if err != nil {
-			c.handleError(fmt.Errorf("reading message length: %w", err))
+			c.handleError(utils.NewSafeError(err, "failed to read message length"))
 			break
 		}
 
@@ -496,7 +497,7 @@ func (c *Connection) readLoop() {
 		rawMessage := make([]byte, messageLength)
 		_, err = io.ReadFull(r, rawMessage)
 		if err != nil {
-			c.handleError(fmt.Errorf("reading message from connection: %w", err))
+			c.handleError(utils.NewSafeError(err, "failed to read message from connection"))
 			break
 		}
 
@@ -528,7 +529,8 @@ func (c *Connection) handleResponse(rawMessage []byte) {
 	message := iso8583.NewMessage(c.spec)
 	err := message.Unpack(rawMessage)
 	if err != nil {
-		c.handleError(fmt.Errorf("unpacking message: %w", err))
+		// TODO: return RawMessage
+		c.handleError(utils.NewSafeError(err, "failed to unpack message"))
 		return
 	}
 
