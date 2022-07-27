@@ -28,6 +28,21 @@ type MessageLengthReader func(r io.Reader) (int, error)
 // MessageLengthWriter writes message header with encoded length into w
 type MessageLengthWriter func(w io.Writer, length int) (int, error)
 
+// ErrUnpack returns error with possibility to access RawMessage when
+// connection failed to unpack message
+type ErrUnpack struct {
+	Err        error
+	RawMessage []byte
+}
+
+func (e *ErrUnpack) Error() string {
+	return e.Err.Error()
+}
+
+func (e *ErrUnpack) Unwrap() error {
+	return e.Err
+}
+
 // Connection represents an ISO 8583 Connection. Connection may be used
 // by multiple goroutines simultaneously.
 type Connection struct {
@@ -529,8 +544,11 @@ func (c *Connection) handleResponse(rawMessage []byte) {
 	message := iso8583.NewMessage(c.spec)
 	err := message.Unpack(rawMessage)
 	if err != nil {
-		// TODO: return RawMessage
-		c.handleError(utils.NewSafeError(err, "failed to unpack message"))
+		unpackErr := &ErrUnpack{
+			Err:        err,
+			RawMessage: rawMessage,
+		}
+		c.handleError(utils.NewSafeError(unpackErr, "failed to unpack message"))
 		return
 	}
 
