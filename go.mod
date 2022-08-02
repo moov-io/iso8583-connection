@@ -1,6 +1,6 @@
 module github.com/moov-io/iso8583-connection
 
-go 1.17
+go 1.19
 
 require (
 	github.com/moov-io/iso8583 v0.12.0
