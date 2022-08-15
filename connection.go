@@ -75,6 +75,9 @@ type Connection struct {
 
 	// user has called Close
 	closing bool
+
+	// artibtrary status set by user such as "online", "down", "etc.)
+	status Status
 }
 
 // New creates and configures Connection. To establish network connection, call `Connect()`.
@@ -576,4 +579,18 @@ func (c *Connection) handleResponse(rawMessage []byte) {
 			go c.Opts.InboundMessageHandler(c, message)
 		}
 	}
+}
+
+func (c *Connection) Status() Status {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	return c.status
+}
+
+func (c *Connection) SetStatus(status Status) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	c.status = status
 }

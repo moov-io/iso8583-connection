@@ -803,6 +803,16 @@ func TestClient_Options(t *testing.T) {
 	})
 }
 
+func TestConnectionStatus(t *testing.T) {
+	c, err := connection.New("1.1.1.1", nil, nil, nil)
+
+	require.NoError(t, err)
+	require.Empty(t, c.Status())
+
+	c.SetStatus(connection.StatusOnline)
+	require.Equal(t, connection.StatusOnline, c.Status())
+}
+
 type TrackingRWCloser struct{ Used bool }
 
 func (m *TrackingRWCloser) Write(p []byte) (n int, err error) {
