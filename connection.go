@@ -76,7 +76,7 @@ type Connection struct {
 	// user has called Close
 	closing bool
 
-	// artibtrary status set by user such as "online", "down", "etc.)
+	// arbitrary status set by user such as "online", "down", etc.
 	status Status
 }
 
@@ -149,6 +149,10 @@ func (c *Connection) Connect() error {
 	c.conn = conn
 
 	c.run()
+
+	if c.Opts.ConnectionEstablishedHandler != nil {
+		go c.Opts.ConnectionEstablishedHandler(c)
+	}
 
 	return nil
 }

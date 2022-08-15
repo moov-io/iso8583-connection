@@ -42,6 +42,10 @@ type Options struct {
 	// were network errors during network read/write
 	ConnectionClosedHandler func(c *Connection)
 
+	// ConnectionEstablishedHandler is called when connection is
+	// established with the server
+	ConnectionEstablishedHandler func(c *Connection)
+
 	TLSConfig *tls.Config
 
 	// ErrorHandler is called in a goroutine with the errors that can't be
@@ -105,6 +109,13 @@ func PingHandler(handler func(c *Connection)) Option {
 func ConnectionClosedHandler(handler func(c *Connection)) Option {
 	return func(o *Options) error {
 		o.ConnectionClosedHandler = handler
+		return nil
+	}
+}
+
+func ConnectionEstablishedHandler(handler func(c *Connection)) Option {
+	return func(o *Options) error {
+		o.ConnectionEstablishedHandler = handler
 		return nil
 	}
 }
