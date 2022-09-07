@@ -46,7 +46,7 @@ func (e *ErrUnpack) Unwrap() error {
 // Connection represents an ISO 8583 Connection. Connection may be used
 // by multiple goroutines simultaneously.
 type Connection struct {
-	addr           string
+	Addr           string
 	Opts           Options
 	conn           io.ReadWriteCloser
 	requestsCh     chan request
@@ -87,7 +87,7 @@ func New(addr string, spec *iso8583.MessageSpec, mlReader MessageLengthReader, m
 	}
 
 	return &Connection{
-		addr:               addr,
+		Addr:               addr,
 		Opts:               opts,
 		requestsCh:         make(chan request),
 		readResponseCh:     make(chan []byte),
@@ -133,14 +133,16 @@ func (c *Connection) Connect() error {
 		return nil
 	}
 
+	d := &net.Dialer{Timeout: c.Opts.ConnectTimeout}
+
 	if c.Opts.TLSConfig != nil {
-		conn, err = tls.Dial("tcp", c.addr, c.Opts.TLSConfig)
+		conn, err = tls.DialWithDialer(d, "tcp", c.Addr, c.Opts.TLSConfig)
 	} else {
-		conn, err = net.Dial("tcp", c.addr)
+		conn, err = d.Dial("tcp", c.Addr)
 	}
 
 	if err != nil {
-		return fmt.Errorf("connecting to server %s: %w", c.addr, err)
+		return fmt.Errorf("connecting to server %s: %w", c.Addr, err)
 	}
 
 	c.conn = conn
