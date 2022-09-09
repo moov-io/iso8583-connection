@@ -4,7 +4,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"time"
 
 	"github.com/moov-io/iso8583"
@@ -160,7 +160,7 @@ func RootCAs(file ...string) Option {
 		certPool := x509.NewCertPool()
 
 		for _, f := range file {
-			cert, err := ioutil.ReadFile(f)
+			cert, err := os.ReadFile(f)
 			if err != nil {
 				return fmt.Errorf("loading root certificate %s: %w", file, err)
 			}
