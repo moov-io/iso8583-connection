@@ -91,6 +91,26 @@ func TestClient_Connect(t *testing.T) {
 		require.NoError(t, c.Close())
 	})
 
+	t.Run("Connect times out", func(t *testing.T) {
+		// using a non-routable IP address per https://stackoverflow.com/questions/100841/artificially-create-a-connection-timeout-error
+		c, err := connection.New("10.0.0.0:50000", testSpec, readMessageLength, writeMessageLength, connection.ConnectTimeout(2*time.Second))
+		require.NoError(t, err)
+
+		start := time.Now()
+		err = c.Connect()
+		end := time.Now()
+		delta := end.Sub(start)
+
+		require.Error(t, err)
+		// Test against triple the timeout value to be safe, which should also be well under any OS specific socket timeout
+		// Realistically, the delta should nearly always be exactly 2 seconds
+		require.Less(t, delta, 6*time.Second)
+		// Also confirm the timeout did not happen in less than 2 seconds
+		require.Less(t, 2*time.Second, delta)
+
+		require.NoError(t, c.Close())
+	})
+
 	t.Run("no panic when Close before Connect", func(t *testing.T) {
 		// our client can connect to the server
 		c, err := connection.New("", testSpec, readMessageLength, writeMessageLength)
@@ -195,8 +215,8 @@ func TestClient_Send(t *testing.T) {
 		require.NoError(t, err)
 
 		// when we send iso message to the server
-		// we do not wait for the response, as mesage will timeout
-		// c.Close() will wait for c.Send to clomplete
+		// we do not wait for the response, as message will timeout
+		// c.Close() will wait for c.Send to complete
 		go func() {
 			_, err := c.Send(message)
 			require.ErrorIs(t, err, connection.ErrSendTimeout)
