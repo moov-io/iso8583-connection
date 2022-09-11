@@ -839,14 +839,23 @@ func TestClient_Options(t *testing.T) {
 	})
 }
 
-func TestConnectionStatus(t *testing.T) {
-	c, err := connection.New("1.1.1.1", nil, nil, nil)
+func TestConnection(t *testing.T) {
+	t.Run("Get", func(t *testing.T) {
+		c, err := connection.New("1.1.1.1", nil, nil, nil)
 
-	require.NoError(t, err)
-	require.Empty(t, c.Status())
+		require.NoError(t, err)
+		require.Empty(t, c.Get("status"))
+	})
 
-	c.SetStatus(connection.StatusOnline)
-	require.Equal(t, connection.StatusOnline, c.Status())
+	// test Set for connection
+	t.Run("Set", func(t *testing.T) {
+		c, err := connection.New("1.1.1.1", nil, nil, nil)
+
+		require.NoError(t, err)
+
+		c.Set("status", "connected")
+		require.Equal(t, "connected", c.Get("status"))
+	})
 }
 
 type TrackingRWCloser struct{ Used bool }

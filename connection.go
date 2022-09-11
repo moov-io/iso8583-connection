@@ -76,8 +76,8 @@ type Connection struct {
 	// user has called Close
 	closing bool
 
-	// arbitrary status set by user such as "online", "down", etc.
-	status Status
+	// kv stores brand specific data such as status of the connection
+	kv map[string]string
 }
 
 // New creates and configures Connection. To establish network connection, call `Connect()`.
@@ -99,6 +99,7 @@ func New(addr string, spec *iso8583.MessageSpec, mlReader MessageLengthReader, m
 		spec:               spec,
 		readMessageLength:  mlReader,
 		writeMessageLength: mlWriter,
+		kv:                 make(map[string]string),
 	}, nil
 }
 
@@ -585,16 +586,22 @@ func (c *Connection) handleResponse(rawMessage []byte) {
 	}
 }
 
-func (c *Connection) Status() Status {
+// Get returns value by key
+func (c *Connection) Get(key string) string {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
-	return c.status
+	if value, ok := c.kv[key]; ok {
+		return value
+	}
+
+	return ""
 }
 
-func (c *Connection) SetStatus(status Status) {
+// Set sets value by key
+func (c *Connection) Set(key, value string) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
-	c.status = status
+	c.kv[key] = value
 }
