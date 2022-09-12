@@ -152,6 +152,34 @@ func (c *Connection) Connect() error {
 	return nil
 }
 
+// Reconnect establishes a new connection
+func (c *Connection) Reconnect() error {
+	// Should only be called on non-active channels, this adds additional protections
+	err := c.Close()
+	if err != nil {
+		return fmt.Errorf("failed to close connection")
+	}
+
+	var conn net.Conn
+	d := &net.Dialer{Timeout: c.Opts.ConnectTimeout}
+
+	if c.Opts.TLSConfig != nil {
+		conn, err = tls.DialWithDialer(d, "tcp", c.Addr, c.Opts.TLSConfig)
+	} else {
+		conn, err = d.Dial("tcp", c.Addr)
+	}
+
+	if err != nil {
+		return fmt.Errorf("connecting to server %s: %w", c.Addr, err)
+	}
+
+	c.conn = conn
+
+	c.run()
+
+	return nil
+}
+
 // run starts read and write loops in goroutines
 func (c *Connection) run() {
 	go c.writeLoop()
