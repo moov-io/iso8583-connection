@@ -75,6 +75,8 @@ type Connection struct {
 
 	// user has called Close
 	closing bool
+
+	reconnecting bool
 }
 
 // New creates and configures Connection. To establish network connection, call `Connect()`.
@@ -125,34 +127,15 @@ func (c *Connection) SetOptions(options ...Option) error {
 
 // Connect establishes the connection to the server using configured Addr
 func (c *Connection) Connect() error {
-	var conn net.Conn
-	var err error
-
 	if c.conn != nil {
 		c.run()
 		return nil
 	}
 
-	d := &net.Dialer{Timeout: c.Opts.ConnectTimeout}
-
-	if c.Opts.TLSConfig != nil {
-		conn, err = tls.DialWithDialer(d, "tcp", c.Addr, c.Opts.TLSConfig)
-	} else {
-		conn, err = d.Dial("tcp", c.Addr)
-	}
-
-	if err != nil {
-		return fmt.Errorf("connecting to server %s: %w", c.Addr, err)
-	}
-
-	c.conn = conn
-
-	c.run()
-
-	return nil
+	return c.doConnect()
 }
 
-// Reconnect establishes a new connection
+// Reconnect establishes a new connection to the server using configured Addr
 func (c *Connection) Reconnect() error {
 	// Should only be called on non-active channels, this adds additional protections
 	err := c.Close()
@@ -160,6 +143,11 @@ func (c *Connection) Reconnect() error {
 		return fmt.Errorf("failed to close connection")
 	}
 
+	return c.doConnect()
+}
+
+func (c *Connection) doConnect() error {
+	var err error
 	var conn net.Conn
 	d := &net.Dialer{Timeout: c.Opts.ConnectTimeout}
 

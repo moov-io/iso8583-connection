@@ -120,6 +120,41 @@ func TestClient_Connect(t *testing.T) {
 	})
 }
 
+func TestClient_Reconnect(t *testing.T) {
+	t.Run("reconnect called on new (never connected) connection", func(t *testing.T) {
+		server, err := NewTestServer()
+		require.NoError(t, err)
+		defer server.Close()
+
+		// our client can connect to the server
+		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength)
+		require.NoError(t, err)
+
+		err = c.Reconnect()
+		require.NoError(t, err)
+		require.NoError(t, c.Close())
+	})
+
+	t.Run("reconnect called on closed connection", func(t *testing.T) {
+		server, err := NewTestServer()
+		require.NoError(t, err)
+		defer server.Close()
+
+		// our client can connect to the server
+		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength)
+		require.NoError(t, err)
+
+		err = c.Connect()
+		require.NoError(t, err)
+		err = c.Close()
+		require.NoError(t, err)
+
+		err = c.Reconnect()
+		require.NoError(t, err)
+		require.NoError(t, c.Close())
+	})
+}
+
 func TestClient_Send(t *testing.T) {
 	server, err := NewTestServer()
 	require.NoError(t, err)
