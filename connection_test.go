@@ -856,6 +856,61 @@ func TestClient_Options(t *testing.T) {
 
 		require.Equal(t, 1, callsCounter)
 	})
+
+	t.Run("ConnectionEstablishedHandler is called when connection is connected", func(t *testing.T) {
+		server, err := NewTestServer()
+		require.NoError(t, err)
+		defer server.Close()
+
+		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength, connection.SendTimeout(500*time.Millisecond))
+		require.NoError(t, err)
+
+		// to avoid data race with `isClosedHandlerCalled` when
+		// handling conn closed and checking it in the
+		// require.Eventually
+		var m sync.Mutex
+		var isConnectedHandlerCalled bool
+		var callsCounter int
+		connectedHandler := func(c *connection.Connection) {
+			m.Lock()
+			isConnectedHandlerCalled = true
+			callsCounter += 1
+			m.Unlock()
+		}
+		c.SetOptions(connection.ConnectionEstablishedHandler(connectedHandler))
+
+		err = c.Connect()
+		require.NoError(t, err)
+		defer c.Close()
+
+		require.Eventually(t, func() bool {
+			m.Lock()
+			defer m.Unlock()
+
+			return isConnectedHandlerCalled
+		}, 200*time.Millisecond, 10*time.Millisecond)
+
+		require.Equal(t, 1, callsCounter)
+	})
+}
+
+func TestConnection(t *testing.T) {
+	t.Run("Get", func(t *testing.T) {
+		c, err := connection.New("1.1.1.1", nil, nil, nil)
+
+		require.NoError(t, err)
+		require.Empty(t, c.Get("status"))
+	})
+
+	// test Set for connection
+	t.Run("Set", func(t *testing.T) {
+		c, err := connection.New("1.1.1.1", nil, nil, nil)
+
+		require.NoError(t, err)
+
+		c.Set("status", "connected")
+		require.Equal(t, "connected", c.Get("status"))
+	})
 }
 
 type TrackingRWCloser struct{ Used bool }
