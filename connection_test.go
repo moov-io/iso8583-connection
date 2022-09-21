@@ -153,6 +153,33 @@ func TestClient_Reconnect(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, c.Close())
 	})
+
+	t.Run("reconnect called concurrently", func(t *testing.T) {
+		server, err := NewTestServer()
+		require.NoError(t, err)
+		defer server.Close()
+
+		// our client can connect to the server
+		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength)
+		require.NoError(t, err)
+
+		err = c.Connect()
+		require.NoError(t, err)
+		err = c.Close()
+		require.NoError(t, err)
+
+		reconnectChannel := make(chan error)
+		tryReconnect := func(ch chan error) {
+			ch <- c.Reconnect()
+		}
+
+		go tryReconnect(reconnectChannel)
+		go tryReconnect(reconnectChannel)
+		require.NoError(t, <-reconnectChannel)
+		require.NoError(t, <-reconnectChannel)
+
+		require.NoError(t, c.Close())
+	})
 }
 
 func TestClient_Send(t *testing.T) {

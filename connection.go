@@ -141,6 +141,16 @@ func (c *Connection) Connect() error {
 
 // Reconnect establishes a new connection to the server using configured Addr
 func (c *Connection) Reconnect() error {
+	c.mutex.Lock()
+
+	if c.reconnecting {
+		c.mutex.Unlock()
+		return nil
+	}
+
+	c.reconnecting = true
+	c.mutex.Unlock()
+
 	// Should only be called on non-active channels, this adds additional protections
 	err := c.Close()
 	if err != nil {
