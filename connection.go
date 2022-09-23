@@ -268,13 +268,15 @@ func (c *Connection) close() error {
 // connection with ISO 8583 server
 func (c *Connection) Close() error {
 	c.mutex.Lock()
+	defer func() {
+		c.mutex.Unlock()
+	}()
 	// if we are closing already, just return
 	if c.closing {
-		c.mutex.Unlock()
 		return nil
 	}
+
 	c.closing = true
-	c.mutex.Unlock()
 
 	return c.close()
 }
