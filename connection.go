@@ -217,8 +217,8 @@ func (c *Connection) handleConnectionError(err error) {
 	// close everything else we close normally
 	c.close()
 
-	if c.Opts.ConnectionClosedHandler != nil && len(c.Opts.ConnectionClosedHandler) > 0 {
-		for _, handler := range c.Opts.ConnectionClosedHandler {
+	if c.Opts.ConnectionClosedHandlers != nil && len(c.Opts.ConnectionClosedHandlers) > 0 {
+		for _, handler := range c.Opts.ConnectionClosedHandlers {
 			go handler(c)
 		}
 	}
