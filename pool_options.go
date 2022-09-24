@@ -50,9 +50,9 @@ func PoolErrorHandler(h func(err error)) PoolOption {
 	}
 }
 
-// OnConnect sets a callback that will be synchronously  called when connection is established.
+// PoolOnConnect sets a callback that will be synchronously  called when connection is established.
 // If it returns error, then connections will be closed and re-connect will be attempted
-func OnConnect(h func(c *Connection) error) PoolOption {
+func PoolOnConnect(h func(c *Connection) error) PoolOption {
 	return func(opts *PoolOptions) error {
 		opts.OnConnect = h
 		return nil

@@ -153,6 +153,17 @@ func (c *Connection) Connect() error {
 
 	c.run()
 
+	if c.Opts.OnConnect != nil {
+		if err := c.Opts.OnConnect(c); err != nil {
+			// close connection if OnConnect failed
+			// but ignore the potential error from Close()
+			// as it's a rare case
+			_ = c.Close()
+
+			return fmt.Errorf("on connect callback %s: %w", c.Addr, err)
+		}
+	}
+
 	if c.Opts.ConnectionEstablishedHandler != nil {
 		go c.Opts.ConnectionEstablishedHandler(c)
 	}

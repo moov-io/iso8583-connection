@@ -225,7 +225,7 @@ func TestPool(t *testing.T) {
 			return errors.New("onConnect error")
 		}
 
-		pool, err := connection.NewPool(factory, addrs, connection.OnConnect(onConnect))
+		pool, err := connection.NewPool(factory, addrs, connection.PoolOnConnect(onConnect))
 		require.NoError(t, err)
 
 		err = pool.Connect()
