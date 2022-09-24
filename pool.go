@@ -80,6 +80,25 @@ func (p *Pool) Connect() error {
 			continue
 		}
 
+		if p.Opts.OnConnect != nil {
+			err := p.Opts.OnConnect(conn)
+			if err != nil {
+				p.handleError(fmt.Errorf("on connect handler for %s: %w", conn.Addr, err))
+
+				// becase connection was established, we should close it
+				// theoretically, if it fails to close, we may leak connection
+				// but it's rare case and we can't do anything about it
+				err = conn.Close()
+				if err != nil {
+					p.handleError(fmt.Errorf("closing connection after failed on connect handler to %s: %w", conn.Addr, err))
+				}
+
+				p.wg.Add(1)
+				go p.recreateConnection(conn)
+				continue
+			}
+		}
+
 		p.connections = append(p.connections, conn)
 	}
 
@@ -163,19 +182,33 @@ func (p *Pool) handleClosedConnection(closedConn *Connection) {
 func (p *Pool) recreateConnection(closedConn *Connection) {
 	defer p.wg.Done()
 
-	conn, err := p.Factory(closedConn.Addr)
-	if err != nil {
-		p.handleError(fmt.Errorf("failed to re-create connection for %s: %w", closedConn.Addr, err))
-		return
-	}
-
-	// set own handler when connection is closed
-	conn.SetOptions(ConnectionClosedHandler(p.handleClosedConnection))
-
+	var conn *Connection
+	var err error
 	for {
+
+		conn, err = p.Factory(closedConn.Addr)
+		if err != nil {
+			p.handleError(fmt.Errorf("failed to re-create connection for %s: %w", closedConn.Addr, err))
+			return
+		}
+
+		// set own handler when connection is closed
+		conn.SetOptions(ConnectionClosedHandler(p.handleClosedConnection))
+
 		err = conn.Connect()
+
 		if err == nil {
-			break
+			if p.Opts.OnConnect == nil {
+				break
+			}
+
+			err = p.Opts.OnConnect(conn)
+			if err == nil {
+				break
+			}
+
+			// ignore error here is we can't do anything about it
+			_ = conn.Close()
 		}
 
 		p.handleError(fmt.Errorf("failed to reconnect to %s: %w", conn.Addr, err))

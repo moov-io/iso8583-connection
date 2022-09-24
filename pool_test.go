@@ -1,6 +1,7 @@
 package connection_test
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"sync/atomic"
@@ -208,5 +209,33 @@ func TestPool(t *testing.T) {
 		require.Eventually(t, func() bool {
 			return len(pool.Connections()) == serversToStart
 		}, 2000*time.Millisecond, 50*time.Millisecond, "expect to have one less connection")
+	})
+
+	t.Run("OnConnect is executed when connection is established", func(t *testing.T) {
+		var onConnectCalls int32
+
+		onConnect := func(conn *connection.Connection) error {
+			// onConnect returns nil on the first call and error on the second
+			atomic.AddInt32(&onConnectCalls, 1)
+
+			if atomic.LoadInt32(&onConnectCalls) == 1 {
+				return nil
+			}
+
+			return errors.New("onConnect error")
+		}
+
+		pool, err := connection.NewPool(factory, addrs, connection.OnConnect(onConnect))
+		require.NoError(t, err)
+
+		err = pool.Connect()
+		defer pool.Close()
+
+		// eventually we expect onConnect to be called three times it
+		// will be called third time because on the second time it
+		// returns error and pool will try to re-connect
+		require.Eventually(t, func() bool {
+			return atomic.LoadInt32(&onConnectCalls) == 3
+		}, 200*time.Millisecond, 50*time.Millisecond, "expect onConnect to be called three times")
 	})
 }

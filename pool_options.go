@@ -17,6 +17,9 @@ type PoolOptions struct {
 	// MinConnections is the number of connections required to be established when
 	// we connect the pool
 	MinConnections int
+
+	// OnConnect is called synchronously when a connection is established
+	OnConnect func(c *Connection) error
 }
 
 func GetDefaultPoolOptions() PoolOptions {
@@ -43,6 +46,15 @@ func PoolMinConnections(n int) PoolOption {
 func PoolErrorHandler(h func(err error)) PoolOption {
 	return func(opts *PoolOptions) error {
 		opts.ErrorHandler = h
+		return nil
+	}
+}
+
+// OnConnect sets a callback that will be synchronously  called when connection is established.
+// If it returns error, then connections will be closed and re-connect will be attempted
+func OnConnect(h func(c *Connection) error) PoolOption {
+	return func(opts *PoolOptions) error {
+		opts.OnConnect = h
 		return nil
 	}
 }
