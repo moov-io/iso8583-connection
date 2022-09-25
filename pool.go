@@ -126,7 +126,7 @@ func (p *Pool) Get() (*Connection, error) {
 		conns = p.connections
 	}
 
-	if conns == nil || len(conns) == 0 {
+	if len(conns) == 0 {
 		return nil, errors.New("no (filtered) connections in the pool")
 	}
 
