@@ -46,7 +46,7 @@ func (e *ErrUnpack) Unwrap() error {
 // Connection represents an ISO 8583 Connection. Connection may be used
 // by multiple goroutines simultaneously.
 type Connection struct {
-	Addr           string
+	addr           string
 	Opts           Options
 	conn           io.ReadWriteCloser
 	requestsCh     chan request
@@ -90,7 +90,7 @@ func New(addr string, spec *iso8583.MessageSpec, mlReader MessageLengthReader, m
 	}
 
 	return &Connection{
-		Addr:               addr,
+		addr:               addr,
 		Opts:               opts,
 		requestsCh:         make(chan request),
 		readResponseCh:     make(chan []byte),
@@ -140,13 +140,13 @@ func (c *Connection) Connect() error {
 	d := &net.Dialer{Timeout: c.Opts.ConnectTimeout}
 
 	if c.Opts.TLSConfig != nil {
-		conn, err = tls.DialWithDialer(d, "tcp", c.Addr, c.Opts.TLSConfig)
+		conn, err = tls.DialWithDialer(d, "tcp", c.addr, c.Opts.TLSConfig)
 	} else {
-		conn, err = d.Dial("tcp", c.Addr)
+		conn, err = d.Dial("tcp", c.addr)
 	}
 
 	if err != nil {
-		return fmt.Errorf("connecting to server %s: %w", c.Addr, err)
+		return fmt.Errorf("connecting to server %s: %w", c.addr, err)
 	}
 
 	c.conn = conn
@@ -160,7 +160,7 @@ func (c *Connection) Connect() error {
 			// as it's a rare case
 			_ = c.Close()
 
-			return fmt.Errorf("on connect callback %s: %w", c.Addr, err)
+			return fmt.Errorf("on connect callback %s: %w", c.addr, err)
 		}
 	}
 
@@ -619,4 +619,9 @@ func (c *Connection) Set(key, value string) {
 	defer c.mutex.Unlock()
 
 	c.kv[key] = value
+}
+
+// Addr returns the remote address of the connection
+func (c *Connection) Addr() string {
+	return c.addr
 }
