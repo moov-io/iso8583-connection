@@ -102,7 +102,10 @@ func (p *Pool) Connections() []*Connection {
 	return conns
 }
 
-// Get returns connection from the pool
+// FilterFunc is a function to filter connections
+type FilterFunc func(*Connection) bool
+
+// Get returns filtered connection from the pool
 func (p *Pool) Get() (*Connection, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -110,15 +113,30 @@ func (p *Pool) Get() (*Connection, error) {
 		return nil, errors.New("pool is closed")
 	}
 
-	if p.connections == nil || len(p.connections) == 0 {
-		return nil, errors.New("no connections in the pool")
+	// filtered connections
+	var conns []*Connection
+
+	if p.Opts.ConnectionsFilter != nil {
+		for _, conn := range p.connections {
+			if p.Opts.ConnectionsFilter(conn) {
+				conns = append(conns, conn)
+			}
+		}
+	} else {
+		conns = p.connections
 	}
 
-	conn := p.connections[p.connIndex]
+	if conns == nil || len(conns) == 0 {
+		return nil, errors.New("no (filtered) connections in the pool")
+	}
+
+	// TODO: this is a naive implementation of round robin
+	// we can implement more sophisticated algorithm later
+	conn := conns[p.connIndex]
 	p.connIndex++
 
 	// reset index
-	if p.connIndex >= len(p.connections) {
+	if p.connIndex >= len(conns) {
 		p.connIndex = 0
 	}
 

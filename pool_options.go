@@ -17,6 +17,10 @@ type PoolOptions struct {
 	// MinConnections is the number of connections required to be established when
 	// we connect the pool
 	MinConnections int
+
+	// ConntionsFilter is a function to filter connections in the pool
+	// when Get() is called
+	ConnectionsFilter func(*Connection) bool
 }
 
 func GetDefaultPoolOptions() PoolOptions {
@@ -43,6 +47,13 @@ func PoolMinConnections(n int) PoolOption {
 func PoolErrorHandler(h func(err error)) PoolOption {
 	return func(opts *PoolOptions) error {
 		opts.ErrorHandler = h
+		return nil
+	}
+}
+
+func PoolConnectionsFilter(f func(*Connection) bool) PoolOption {
+	return func(opts *PoolOptions) error {
+		opts.ConnectionsFilter = f
 		return nil
 	}
 }

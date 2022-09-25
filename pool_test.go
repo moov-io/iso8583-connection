@@ -60,7 +60,7 @@ func TestPool(t *testing.T) {
 			testSpec,
 			readMessageLength,
 			writeMessageLength,
-			// set shot connect timeout so we can test re-connects
+			// set short connect timeout so we can test re-connects
 			connection.ConnectTimeout(500*time.Millisecond),
 		)
 		if err != nil {
@@ -208,5 +208,67 @@ func TestPool(t *testing.T) {
 		require.Eventually(t, func() bool {
 			return len(pool.Connections()) == serversToStart
 		}, 2000*time.Millisecond, 50*time.Millisecond, "expect to have one less connection")
+	})
+
+	t.Run("Get() returns filtered connections", func(t *testing.T) {
+		var onConnectCalled int32
+		// set status `online` (value) only for the first connection
+		// keeping second connection with status `offline`
+		onConnect := func(conn *connection.Connection) error {
+			if atomic.AddInt32(&onConnectCalled, 1) == 1 {
+				conn.Set("status", "online")
+			}
+
+			return nil
+		}
+
+		// And a factory method that will build connection for the pool
+		factory := func(addr string) (*connection.Connection, error) {
+			c, err := connection.New(
+				addr,
+				testSpec,
+				readMessageLength,
+				writeMessageLength,
+				// set status `online` (value) only for the first connection
+				connection.OnConnect(onConnect),
+			)
+			if err != nil {
+				return nil, fmt.Errorf("building iso 8583 connection: %w", err)
+			}
+
+			return c, nil
+		}
+
+		// filterOnlineConnections returns only connections with status `online`
+		filterOnlineConnections := func(conn *connection.Connection) bool {
+			return conn.Get("status") == "online"
+		}
+
+		pool, err := connection.NewPool(
+			factory,
+			addrs,
+			connection.PoolConnectionsFilter(filterOnlineConnections),
+		)
+		require.NoError(t, err)
+
+		// when we connect
+		err = pool.Connect()
+		require.NoError(t, err)
+		defer pool.Close()
+
+		// we expect to have to connections
+		require.Equal(t, len(pool.Connections()), serversToStart)
+
+		// Get should return the same connection twice (filter not `online` connections)
+		conn, err := pool.Get()
+		require.NoError(t, err)
+		require.Equal(t, conn.Get("status"), "online")
+
+		// Get should return the same connection as the first one (filter not `online` connections)
+		for i := 0; i < serversToStart; i++ {
+			connN, err := pool.Get()
+			require.NoError(t, err)
+			require.Equal(t, conn, connN)
+		}
 	})
 }
