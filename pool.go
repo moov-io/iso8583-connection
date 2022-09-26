@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -16,7 +17,7 @@ type Pool struct {
 
 	mu          sync.Mutex
 	connections []*Connection
-	connIndex   int
+	connIndex   uint32
 
 	done chan struct{}
 
@@ -107,6 +108,7 @@ type FilterFunc func(*Connection) bool
 
 // Get returns filtered connection from the pool
 func (p *Pool) Get() (*Connection, error) {
+	fmt.Println("Get")
 	p.mu.Lock()
 	if p.isClosed {
 		p.mu.Unlock()
@@ -121,17 +123,9 @@ func (p *Pool) Get() (*Connection, error) {
 		return nil, errors.New("no (filtered) connections in the pool")
 	}
 
-	// TODO: this is a naive implementation of round robin
-	// we can implement more sophisticated algorithm later
-	conn := conns[p.connIndex]
-	p.connIndex++
+	n := atomic.AddUint32(&p.connIndex, 1)
 
-	// reset index
-	if p.connIndex >= len(conns) {
-		p.connIndex = 0
-	}
-
-	return conn, nil
+	return conns[(int(n)-1)%len(conns)], nil
 }
 
 // when connection is closed, remove it from the pool of connections and start

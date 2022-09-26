@@ -95,7 +95,7 @@ func TestPool(t *testing.T) {
 		require.Len(t, pool.Connections(), serversToStart)
 	})
 
-	t.Run("Get() returns next connection from the pool looping over the list of connections", func(t *testing.T) {
+	t.Run("Get returns next connection from the pool looping over the list of connections", func(t *testing.T) {
 		// When we call Get() len(pool.Connections()) * N times
 		var n = 3
 		var connections []*connection.Connection
