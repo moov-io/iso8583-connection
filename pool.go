@@ -108,7 +108,6 @@ type FilterFunc func(*Connection) bool
 
 // Get returns filtered connection from the pool
 func (p *Pool) Get() (*Connection, error) {
-	fmt.Println("Get")
 	p.mu.Lock()
 	if p.isClosed {
 		p.mu.Unlock()
