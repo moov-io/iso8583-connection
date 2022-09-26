@@ -142,6 +142,9 @@ factory := func(addr string) (*connection.Connection, error) {
 		writeMessageLength,
 		// set shot connect timeout so we can test re-connects
 		connection.ConnectTimeout(500*time.Millisecond),
+		connection.OnConnect(func(c *connection.Connection) {
+			c.Set("status", "online")
+		}),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("building iso8583 connection: %w", err)
@@ -184,9 +187,21 @@ factory := func(addr string) (*connection.Connection, error) {
 }
 ```
 
-Now you can establish all connections:
+Now you can create pool and establish all connections:
 
 ```go
+// let's say we want Get() to return only online connections
+filterOnlineConnections := func(conn *connection.Connection) bool {
+	return conn.Get("status") == "online"
+}
+
+pool, err := connection.NewPool(
+	factory,
+	addrs,
+	connection.PoolConnectionsFilter(filterOnlineConnections),
+)
+// handle error
+
 err = pool.Connect()
 // handle error
 ```
@@ -194,6 +209,7 @@ err = pool.Connect()
 When pool is connected, you can get connection from the pool to send message to:
 
 ```go
+// get connection (only "online") from the pool
 conn, err := pool.Get()
 // handle err
 
@@ -209,6 +225,15 @@ Because `Connection` is safe to be used concurrently, you don't return
 connection back to the pool. But don't close the connection directly as the
 pool will remove it from the pool of connections only when connection is closed
 by the server. It does it using `ConnectionClosedHandler`.
+
+### Configuration of the Pool
+
+Following options are supported:
+
+* `ReconnectWait` sets the time to wait after first re-connect attempt
+* `ErrorHandler` is called in a goroutine with the errors that can't be returned to the caller (from other goroutines)
+* `MinConnections` is the number of connections required to be established when we connect the pool
+* `ConnectionsFilter` is a function to filter connections in the pool for `Get`, `IsDegraded` or `IsUp` methods
 
 ## Benchmark
 
