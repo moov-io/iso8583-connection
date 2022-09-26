@@ -108,23 +108,14 @@ type FilterFunc func(*Connection) bool
 // Get returns filtered connection from the pool
 func (p *Pool) Get() (*Connection, error) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	if p.isClosed {
+		p.mu.Unlock()
 		return nil, errors.New("pool is closed")
 	}
+	p.mu.Unlock()
 
 	// filtered connections
-	var conns []*Connection
-
-	if p.Opts.ConnectionsFilter != nil {
-		for _, conn := range p.connections {
-			if p.Opts.ConnectionsFilter(conn) {
-				conns = append(conns, conn)
-			}
-		}
-	} else {
-		conns = p.connections
-	}
+	conns := p.filteredConnections()
 
 	if len(conns) == 0 {
 		return nil, errors.New("no (filtered) connections in the pool")
@@ -262,23 +253,28 @@ func (p *Pool) Done() <-chan struct{} {
 	return p.done
 }
 
-// IsDegraded returns true if pool is not full
-func (p *Pool) IsDegraded() bool {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	// filtered connections
-	var conns []*Connection
-
-	if p.Opts.ConnectionsFilter != nil {
-		for _, conn := range p.connections {
-			if p.Opts.ConnectionsFilter(conn) {
-				conns = append(conns, conn)
-			}
-		}
-	} else {
-		conns = p.connections
+// filteredConnections returns filtered connections
+func (p *Pool) filteredConnections() []*Connection {
+	if p.Opts.ConnectionsFilter == nil {
+		return p.Connections()
 	}
 
-	return len(p.Addrs) != len(conns)
+	var conns []*Connection
+	for _, conn := range p.Connections() {
+		if p.Opts.ConnectionsFilter(conn) {
+			conns = append(conns, conn)
+		}
+	}
+
+	return conns
+}
+
+// IsDegraded returns true if pool is not full
+func (p *Pool) IsDegraded() bool {
+	return len(p.Addrs) != len(p.filteredConnections())
+}
+
+// IsUp returns true if at least one connection is in the pool
+func (p *Pool) IsUp() bool {
+	return len(p.filteredConnections()) > 0
 }

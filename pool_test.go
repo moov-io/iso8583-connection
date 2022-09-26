@@ -77,6 +77,9 @@ func TestPool(t *testing.T) {
 	require.NoError(t, err)
 	defer pool.Close()
 
+	// pool is Down by default
+	require.False(t, pool.IsUp())
+
 	t.Run("Connect() establishes connections to all servers", func(t *testing.T) {
 		// When we Connect pool
 		err := pool.Connect()
