@@ -270,5 +270,8 @@ func TestPool(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, conn, connN)
 		}
+
+		// should be degraded
+		require.True(t, pool.IsDegraded())
 	})
 }

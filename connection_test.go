@@ -786,6 +786,10 @@ func TestClient_Options(t *testing.T) {
 		defer c.Close()
 		require.Equal(t, int32(0), atomic.LoadInt32(&callsCounter))
 
+		// let's wait for server and client to connect
+		// before we close the server
+		time.Sleep(100 * time.Millisecond)
+
 		// when we close server
 		server.Close()
 

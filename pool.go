@@ -261,3 +261,24 @@ func (p *Pool) Close() error {
 func (p *Pool) Done() <-chan struct{} {
 	return p.done
 }
+
+// IsDegraded returns true if pool is not full
+func (p *Pool) IsDegraded() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// filtered connections
+	var conns []*Connection
+
+	if p.Opts.ConnectionsFilter != nil {
+		for _, conn := range p.connections {
+			if p.Opts.ConnectionsFilter(conn) {
+				conns = append(conns, conn)
+			}
+		}
+	} else {
+		conns = p.connections
+	}
+
+	return len(p.Addrs) != len(conns)
+}
