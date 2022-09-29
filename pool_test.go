@@ -219,7 +219,7 @@ func TestPool(t *testing.T) {
 		// keeping second connection with status `offline`
 		onConnect := func(conn *connection.Connection) error {
 			if atomic.AddInt32(&onConnectCalled, 1) == 1 {
-				conn.Set("status", "online")
+				conn.SetStatus(connection.StatusOnline)
 			}
 
 			return nil
@@ -244,7 +244,7 @@ func TestPool(t *testing.T) {
 
 		// filterOnlineConnections returns only connections with status `online`
 		filterOnlineConnections := func(conn *connection.Connection) bool {
-			return conn.Get("status") == "online"
+			return conn.Status() == connection.StatusOnline
 		}
 
 		pool, err := connection.NewPool(
@@ -265,7 +265,7 @@ func TestPool(t *testing.T) {
 		// Get should return the same connection twice (filter not `online` connections)
 		conn, err := pool.Get()
 		require.NoError(t, err)
-		require.Equal(t, conn.Get("status"), "online")
+		require.Equal(t, conn.Status(), connection.StatusOnline)
 
 		// Get should return the same connection as the first one (filter not `online` connections)
 		for i := 0; i < serversToStart; i++ {

@@ -28,6 +28,20 @@ type MessageLengthReader func(r io.Reader) (int, error)
 // MessageLengthWriter writes message header with encoded length into w
 type MessageLengthWriter func(w io.Writer, length int) (int, error)
 
+// ConnectionStatus
+type Status string
+
+const (
+	// StatusOnline means connection is online
+	StatusOnline Status = "online"
+
+	// StatusOffline means connection is offline
+	StatusOffline Status = "offline"
+
+	// StatusUnknown means connection status is unknown (not set)
+	StatusUnknown Status = ""
+)
+
 // ErrUnpack returns error with possibility to access RawMessage when
 // connection failed to unpack message
 type ErrUnpack struct {
@@ -70,14 +84,14 @@ type Connection struct {
 	// WaitGroup to wait for all Send calls to finish
 	wg sync.WaitGroup
 
-	// to protect following: closing, STAN
+	// to protect following: closing, status
 	mutex sync.Mutex
 
 	// user has called Close
 	closing bool
 
-	// kv stores brand specific data such as status of the connection
-	kv map[string]string
+	// connection status
+	status Status
 }
 
 // New creates and configures Connection. To establish network connection, call `Connect()`.
@@ -99,7 +113,6 @@ func New(addr string, spec *iso8583.MessageSpec, mlReader MessageLengthReader, m
 		spec:               spec,
 		readMessageLength:  mlReader,
 		writeMessageLength: mlWriter,
-		kv:                 make(map[string]string),
 	}, nil
 }
 
@@ -601,24 +614,19 @@ func (c *Connection) handleResponse(rawMessage []byte) {
 	}
 }
 
-// Get returns value by key
-func (c *Connection) Get(key string) string {
+// SetStatus sets the connection status
+func (c *Connection) SetStatus(status Status) {
 	c.mutex.Lock()
-	defer c.mutex.Unlock()
-
-	if value, ok := c.kv[key]; ok {
-		return value
-	}
-
-	return ""
+	c.status = status
+	c.mutex.Unlock()
 }
 
-// Set sets value by key
-func (c *Connection) Set(key, value string) {
+// Status returns the connection status
+func (c *Connection) Status() Status {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
-	c.kv[key] = value
+	return c.status
 }
 
 // Addr returns the remote address of the connection

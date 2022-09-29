@@ -889,21 +889,14 @@ func TestClient_Options(t *testing.T) {
 }
 
 func TestConnection(t *testing.T) {
-	t.Run("Get", func(t *testing.T) {
+	t.Run("Status", func(t *testing.T) {
 		c, err := connection.New("1.1.1.1", nil, nil, nil)
 
 		require.NoError(t, err)
-		require.Empty(t, c.Get("status"))
-	})
+		require.Empty(t, c.Status())
 
-	// test Set for connection
-	t.Run("Set", func(t *testing.T) {
-		c, err := connection.New("1.1.1.1", nil, nil, nil)
-
-		require.NoError(t, err)
-
-		c.Set("status", "connected")
-		require.Equal(t, "connected", c.Get("status"))
+		c.SetStatus(connection.StatusOnline)
+		require.Equal(t, connection.StatusOnline, c.Status())
 	})
 }
 
