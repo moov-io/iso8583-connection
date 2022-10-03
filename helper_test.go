@@ -87,7 +87,7 @@ var testSpec *iso8583.MessageSpec = &iso8583.MessageSpec{
 type testServer struct {
 	Addr string
 
-	server *server.Server
+	Server *server.Server
 
 	// to protect following
 	mutex         sync.Mutex
@@ -118,7 +118,7 @@ const (
 	TestCaseRespondWithExtraField string = "005"
 )
 
-func NewTestServer() (*testServer, error) {
+func NewTestServerWithAddr(addr string) (*testServer, error) {
 	var srv *testServer
 
 	// define logic for our test server
@@ -190,19 +190,23 @@ func NewTestServer() (*testServer, error) {
 
 	server := server.New(testSpec, readMessageLength, writeMessageLength, connection.InboundMessageHandler(testServerLogic))
 	// start on random port
-	err := server.Start("127.0.0.1:")
+	err := server.Start(addr)
 	if err != nil {
 		return nil, err
 	}
 
 	srv = &testServer{
-		server: server,
+		Server: server,
 		Addr:   server.Addr,
 	}
 
 	return srv, nil
 }
 
+func NewTestServer() (*testServer, error) {
+	return NewTestServerWithAddr("127.0.0.1:")
+}
+
 func (t *testServer) Close() {
-	t.server.Close()
+	t.Server.Close()
 }

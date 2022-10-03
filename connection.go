@@ -28,6 +28,20 @@ type MessageLengthReader func(r io.Reader) (int, error)
 // MessageLengthWriter writes message header with encoded length into w
 type MessageLengthWriter func(w io.Writer, length int) (int, error)
 
+// ConnectionStatus
+type Status string
+
+const (
+	// StatusOnline means connection is online
+	StatusOnline Status = "online"
+
+	// StatusOffline means connection is offline
+	StatusOffline Status = "offline"
+
+	// StatusUnknown means connection status is unknown (not set)
+	StatusUnknown Status = ""
+)
+
 // ErrUnpack returns error with possibility to access RawMessage when
 // connection failed to unpack message
 type ErrUnpack struct {
@@ -46,7 +60,7 @@ func (e *ErrUnpack) Unwrap() error {
 // Connection represents an ISO 8583 Connection. Connection may be used
 // by multiple goroutines simultaneously.
 type Connection struct {
-	Addr           string
+	addr           string
 	Opts           Options
 	conn           io.ReadWriteCloser
 	requestsCh     chan request
@@ -70,14 +84,14 @@ type Connection struct {
 	// WaitGroup to wait for all Send calls to finish
 	wg sync.WaitGroup
 
-	// to protect following: closing, STAN
+	// to protect following: closing, status
 	mutex sync.Mutex
 
 	// user has called Close
 	closing bool
 
-	// kv stores brand specific data such as status of the connection
-	kv map[string]string
+	// connection status
+	status Status
 }
 
 // New creates and configures Connection. To establish network connection, call `Connect()`.
@@ -90,7 +104,7 @@ func New(addr string, spec *iso8583.MessageSpec, mlReader MessageLengthReader, m
 	}
 
 	return &Connection{
-		Addr:               addr,
+		addr:               addr,
 		Opts:               opts,
 		requestsCh:         make(chan request),
 		readResponseCh:     make(chan []byte),
@@ -99,7 +113,6 @@ func New(addr string, spec *iso8583.MessageSpec, mlReader MessageLengthReader, m
 		spec:               spec,
 		readMessageLength:  mlReader,
 		writeMessageLength: mlWriter,
-		kv:                 make(map[string]string),
 	}, nil
 }
 
@@ -140,18 +153,29 @@ func (c *Connection) Connect() error {
 	d := &net.Dialer{Timeout: c.Opts.ConnectTimeout}
 
 	if c.Opts.TLSConfig != nil {
-		conn, err = tls.DialWithDialer(d, "tcp", c.Addr, c.Opts.TLSConfig)
+		conn, err = tls.DialWithDialer(d, "tcp", c.addr, c.Opts.TLSConfig)
 	} else {
-		conn, err = d.Dial("tcp", c.Addr)
+		conn, err = d.Dial("tcp", c.addr)
 	}
 
 	if err != nil {
-		return fmt.Errorf("connecting to server %s: %w", c.Addr, err)
+		return fmt.Errorf("connecting to server %s: %w", c.addr, err)
 	}
 
 	c.conn = conn
 
 	c.run()
+
+	if c.Opts.OnConnect != nil {
+		if err := c.Opts.OnConnect(c); err != nil {
+			// close connection if OnConnect failed
+			// but ignore the potential error from Close()
+			// as it's a rare case
+			_ = c.Close()
+
+			return fmt.Errorf("on connect callback %s: %w", c.addr, err)
+		}
+	}
 
 	if c.Opts.ConnectionEstablishedHandler != nil {
 		go c.Opts.ConnectionEstablishedHandler(c)
@@ -217,8 +241,10 @@ func (c *Connection) handleConnectionError(err error) {
 	// close everything else we close normally
 	c.close()
 
-	if c.Opts.ConnectionClosedHandler != nil {
-		go c.Opts.ConnectionClosedHandler(c)
+	if c.Opts.ConnectionClosedHandlers != nil && len(c.Opts.ConnectionClosedHandlers) > 0 {
+		for _, handler := range c.Opts.ConnectionClosedHandlers {
+			go handler(c)
+		}
 	}
 }
 
@@ -588,22 +614,22 @@ func (c *Connection) handleResponse(rawMessage []byte) {
 	}
 }
 
-// Get returns value by key
-func (c *Connection) Get(key string) string {
+// SetStatus sets the connection status
+func (c *Connection) SetStatus(status Status) {
 	c.mutex.Lock()
-	defer c.mutex.Unlock()
-
-	if value, ok := c.kv[key]; ok {
-		return value
-	}
-
-	return ""
+	c.status = status
+	c.mutex.Unlock()
 }
 
-// Set sets value by key
-func (c *Connection) Set(key, value string) {
+// Status returns the connection status
+func (c *Connection) Status() Status {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
-	c.kv[key] = value
+	return c.status
+}
+
+// Addr returns the remote address of the connection
+func (c *Connection) Addr() string {
+	return c.addr
 }

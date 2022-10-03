@@ -118,6 +118,31 @@ func TestClient_Connect(t *testing.T) {
 
 		require.NoError(t, c.Close())
 	})
+
+	t.Run("OnConnect is called", func(t *testing.T) {
+		server, err := NewTestServer()
+		require.NoError(t, err)
+		defer server.Close()
+
+		var onConnectCalled int32
+		onConnect := func(c *connection.Connection) error {
+			// increase the counter
+			atomic.AddInt32(&onConnectCalled, 1)
+			return nil
+		}
+
+		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength, connection.OnConnect(onConnect))
+		require.NoError(t, err)
+
+		err = c.Connect()
+		require.NoError(t, err)
+		defer c.Close()
+
+		// eventually the onConnectCounter should be 1
+		require.Eventually(t, func() bool {
+			return atomic.LoadInt32(&onConnectCalled) == 1
+		}, 100*time.Millisecond, 20*time.Millisecond, "onConnect should be called")
+	})
 }
 
 func TestClient_Send(t *testing.T) {
@@ -721,7 +746,7 @@ func TestClient_Send(t *testing.T) {
 		}
 
 		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength,
-			connection.ReadTimeout(50*time.Millisecond),
+			connection.ReadTimeout(100*time.Millisecond),
 			connection.ReadTimeoutHandler(readTimeoutHandler),
 		)
 		require.NoError(t, err)
@@ -760,6 +785,10 @@ func TestClient_Options(t *testing.T) {
 		require.NoError(t, err)
 		defer c.Close()
 		require.Equal(t, int32(0), atomic.LoadInt32(&callsCounter))
+
+		// let's wait for server and client to connect
+		// before we close the server
+		time.Sleep(100 * time.Millisecond)
 
 		// when we close server
 		server.Close()
@@ -860,21 +889,14 @@ func TestClient_Options(t *testing.T) {
 }
 
 func TestConnection(t *testing.T) {
-	t.Run("Get", func(t *testing.T) {
+	t.Run("Status", func(t *testing.T) {
 		c, err := connection.New("1.1.1.1", nil, nil, nil)
 
 		require.NoError(t, err)
-		require.Empty(t, c.Get("status"))
-	})
+		require.Empty(t, c.Status())
 
-	// test Set for connection
-	t.Run("Set", func(t *testing.T) {
-		c, err := connection.New("1.1.1.1", nil, nil, nil)
-
-		require.NoError(t, err)
-
-		c.Set("status", "connected")
-		require.Equal(t, "connected", c.Get("status"))
+		c.SetStatus(connection.StatusOnline)
+		require.Equal(t, connection.StatusOnline, c.Status())
 	})
 }
 

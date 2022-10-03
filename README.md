@@ -123,6 +123,118 @@ if mti != "0810" {
 }
 ```
 
+## Connection `Pool`
+
+Sometimes you want to establish connections to multiple servers and re-create
+them when such connections are closed due to a network errors. Connection `Pool`
+is really helpful for such use cases.
+
+To use `Pool` first, you need to create factory function that knows how to create
+connections and list of adresses you want to establish connection with.
+
+```go
+// Factory method that will build connection
+factory := func(addr string) (*connection.Connection, error) {
+	c, err := connection.New(
+		addr,
+		testSpec,
+		readMessageLength,
+		writeMessageLength,
+		// set shot connect timeout so we can test re-connects
+		connection.ConnectTimeout(500*time.Millisecond),
+		connection.OnConnect(func(c *connection.Connection) {
+			c.Set("status", "online")
+		}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("building iso8583 connection: %w", err)
+	}
+
+	return c, nil
+}
+```
+
+if there is a need to apply address specific configurations like TLS, you can create a map or function that will return all needed options for the address:
+
+```go
+func getAddrOpts(addr string) []Option {
+	switch addr {
+	case "127.0.0.1":
+		return []Option{
+			connection.ClientCert(certA, keyA),
+		}
+	case "127.0.0.2":
+		return []Option{
+			connection.ClientCert(certB, keyB),
+		}
+	}
+}
+
+factory := func(addr string) (*connection.Connection, error) {
+	c, err := connection.New(
+		addr,
+		testSpec,
+		readMessageLength,
+		writeMessageLength,
+		connection.ConnectTimeout(500*time.Millisecond),
+		getAddrOpts(addr)...,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("building iso8583 connection: %w", err)
+	}
+
+	return c, nil
+}
+```
+
+Now you can create pool and establish all connections:
+
+```go
+// let's say we want Get() to return only online connections
+filterOnlineConnections := func(conn *connection.Connection) bool {
+	return conn.Get("status") == "online"
+}
+
+pool, err := connection.NewPool(
+	factory,
+	addrs,
+	connection.PoolConnectionsFilter(filterOnlineConnections),
+)
+// handle error
+
+err = pool.Connect()
+// handle error
+```
+
+When pool is connected, you can get connection from the pool to send message to:
+
+```go
+// get connection (only "online") from the pool
+conn, err := pool.Get()
+// handle err
+
+// create iso8583 message
+msg := iso8583.NewMessage(yourSpec)
+// ...
+
+reply, err := conn.Send(msg)
+// handle error
+```
+
+Because `Connection` is safe to be used concurrently, you don't return
+connection back to the pool. But don't close the connection directly as the
+pool will remove it from the pool of connections only when connection is closed
+by the server. It does it using `ConnectionClosedHandler`.
+
+### Configuration of the Pool
+
+Following options are supported:
+
+* `ReconnectWait` sets the time to wait after first re-connect attempt
+* `ErrorHandler` is called in a goroutine with the errors that can't be returned to the caller (from other goroutines)
+* `MinConnections` is the number of connections required to be established when we connect the pool
+* `ConnectionsFilter` is a function to filter connections in the pool for `Get`, `IsDegraded` or `IsUp` methods
+
 ## Benchmark
 
 To benchmark the connection, run:

@@ -41,9 +41,9 @@ type Options struct {
 	// * to handle network management messages (echo, heartbeat, etc.)
 	InboundMessageHandler func(c *Connection, message *iso8583.Message)
 
-	// ConnectionClosedHandler is called when connection is closed by server or there
+	// ConnectionClosedHandlers is called when connection is closed by server or there
 	// were network errors during network read/write
-	ConnectionClosedHandler func(c *Connection)
+	ConnectionClosedHandlers []func(c *Connection)
 
 	// ConnectionEstablishedHandler is called when connection is
 	// established with the server
@@ -54,6 +54,9 @@ type Options struct {
 	// ErrorHandler is called in a goroutine with the errors that can't be
 	// returned to the caller
 	ErrorHandler func(err error)
+
+	// OnConnect is called synchronously when a connection is established
+	OnConnect func(c *Connection) error
 }
 
 type Option func(*Options) error
@@ -120,7 +123,7 @@ func PingHandler(handler func(c *Connection)) Option {
 // ConnectionClosedHandler sets a ConnectionClosedHandler option
 func ConnectionClosedHandler(handler func(c *Connection)) Option {
 	return func(o *Options) error {
-		o.ConnectionClosedHandler = handler
+		o.ConnectionClosedHandlers = append(o.ConnectionClosedHandlers, handler)
 		return nil
 	}
 }
@@ -146,6 +149,15 @@ func InboundMessageHandler(handler func(c *Connection, message *iso8583.Message)
 func ErrorHandler(h func(err error)) Option {
 	return func(opts *Options) error {
 		opts.ErrorHandler = h
+		return nil
+	}
+}
+
+// OnConnect sets a callback that will be synchronously  called when connection is established.
+// If it returns error, then connections will be closed and re-connect will be attempted
+func OnConnect(h func(c *Connection) error) Option {
+	return func(opts *Options) error {
+		opts.OnConnect = h
 		return nil
 	}
 }
