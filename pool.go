@@ -15,16 +15,15 @@ type Pool struct {
 	Addrs   []string
 	Opts    PoolOptions
 
-	mu          sync.Mutex
-	connections []*Connection
-	connIndex   uint32
-
 	done chan struct{}
 
 	// WaitGroup to wait for all reconnect goroutines return
 	wg sync.WaitGroup
 
-	isClosed bool
+	mu          sync.Mutex // protects following fields
+	connections []*Connection
+	connIndex   uint32
+	isClosed    bool
 }
 
 // Pool - provides connections to the clients. It removes the connection from
@@ -147,9 +146,11 @@ func (p *Pool) handleClosedConnection(closedConn *Connection) {
 		return
 	}
 
-	p.connections[connIndex] = p.connections[len(p.connections)-1] // Copy last element to index connIndex.
-	p.connections[len(p.connections)-1] = nil                      // Erase last element
-	p.connections = p.connections[:len(p.connections)-1]           // Truncate slice.
+	connsNum := len(p.connections)
+
+	p.connections[connIndex] = p.connections[connsNum-1] // Copy last element to index connIndex.
+	p.connections[connsNum-1] = nil                      // Erase last element
+	p.connections = p.connections[:connsNum-1]           // Truncate slice.
 
 	// if pool was closed, don't start recreate goroutine
 	// should we return earlier and keep connection in the pool as it will be closed anyway?
