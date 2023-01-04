@@ -746,7 +746,7 @@ func TestClient_Send(t *testing.T) {
 		}
 
 		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength,
-			connection.ReadTimeout(100*time.Millisecond),
+			connection.ReadTimeout(50*time.Millisecond),
 			connection.ReadTimeoutHandler(readTimeoutHandler),
 		)
 		require.NoError(t, err)
