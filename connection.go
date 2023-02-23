@@ -196,6 +196,13 @@ func (c *Connection) handleError(err error) {
 		return
 	}
 
+	c.mutex.Lock()
+	if c.closing {
+		c.mutex.Unlock()
+		return
+	}
+	c.mutex.Unlock()
+
 	go c.Opts.ErrorHandler(err)
 }
 
