@@ -315,15 +315,16 @@ type response struct {
 
 // Send sends message and waits for the response
 func (c *Connection) Send(message *iso8583.Message) (*iso8583.Message, error) {
-	c.wg.Add(1)
-	defer c.wg.Done()
-
 	c.mutex.Lock()
 	if c.closing {
 		c.mutex.Unlock()
 		return nil, ErrConnectionClosed
 	}
+	// calling wg.Add(1) within mutex guarantees that it does not pass the wg.Wait() call in the Close method
+	// otherwise we will have data race issue
+	c.wg.Add(1)
 	c.mutex.Unlock()
+	defer c.wg.Done()
 
 	var buf bytes.Buffer
 	packed, err := message.Pack()
@@ -388,19 +389,20 @@ func (c *Connection) Send(message *iso8583.Message) (*iso8583.Message, error) {
 	return resp, err
 }
 
-// Reply sends the message and does not wait for a reply to be received
-// any reaply received for message send using Reply will be handled with
+// Reply sends the message and does not wait for a reply to be received.
+// Any reply received for message send using Reply will be handled with
 // unmatchedMessageHandler
 func (c *Connection) Reply(message *iso8583.Message) error {
-	c.wg.Add(1)
-	defer c.wg.Done()
-
 	c.mutex.Lock()
 	if c.closing {
 		c.mutex.Unlock()
 		return ErrConnectionClosed
 	}
+	// calling wg.Add(1) within mutex guarantees that it does not pass the wg.Wait() call in the Close method
+	// otherwise we will have data race issue
+	c.wg.Add(1)
 	c.mutex.Unlock()
+	defer c.wg.Done()
 
 	// prepare message for sending
 	var buf bytes.Buffer
