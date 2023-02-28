@@ -274,6 +274,12 @@ func (c *Connection) close() error {
 // Close waits for pending requests to complete and then closes network
 // connection with ISO 8583 server
 func (c *Connection) Close() error {
+	if c.Opts.OnClose != nil {
+		if err := c.Opts.OnClose(c); err != nil {
+			return fmt.Errorf("on close callback: %w", err)
+		}
+	}
+
 	c.mutex.Lock()
 	// if we are closing already, just return
 	if c.closing {

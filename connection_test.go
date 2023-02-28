@@ -143,6 +143,33 @@ func TestClient_Connect(t *testing.T) {
 			return atomic.LoadInt32(&onConnectCalled) == 1
 		}, 100*time.Millisecond, 20*time.Millisecond, "onConnect should be called")
 	})
+
+	t.Run("OnClose is called", func(t *testing.T) {
+		server, err := NewTestServer()
+		require.NoError(t, err)
+		defer server.Close()
+
+		var onClosedCalled int32
+		onClose := func(c *connection.Connection) error {
+			// increase the counter
+			atomic.AddInt32(&onClosedCalled, 1)
+			return nil
+		}
+
+		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength, connection.OnClose(onClose))
+		require.NoError(t, err)
+
+		// err = c.Connect()
+		// require.NoError(t, err)
+
+		err = c.Close()
+		require.NoError(t, err)
+
+		// eventually the onClosedCalled should be 1
+		require.Eventually(t, func() bool {
+			return atomic.LoadInt32(&onClosedCalled) == 1
+		}, 100*time.Millisecond, 20*time.Millisecond, "onClose should be called")
+	})
 }
 
 func TestClient_Send(t *testing.T) {
