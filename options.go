@@ -57,6 +57,9 @@ type Options struct {
 
 	// OnConnect is called synchronously when a connection is established
 	OnConnect func(c *Connection) error
+
+	// OnClose is called synchronously before a connection is closed
+	OnClose func(c *Connection) error
 }
 
 type Option func(*Options) error
@@ -158,6 +161,13 @@ func ErrorHandler(h func(err error)) Option {
 func OnConnect(h func(c *Connection) error) Option {
 	return func(opts *Options) error {
 		opts.OnConnect = h
+		return nil
+	}
+}
+
+func OnClose(h func(c *Connection) error) Option {
+	return func(opts *Options) error {
+		opts.OnClose = h
 		return nil
 	}
 }
