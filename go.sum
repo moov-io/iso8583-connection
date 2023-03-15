@@ -10,6 +10,8 @@ github.com/moov-io/iso8583 v0.14.1 h1:kebG3hiWW41UvDMnNDbmgtDxjLqLOSxWCIITDTT3QM
 github.com/moov-io/iso8583 v0.14.1/go.mod h1:RXWrTyAXP1diIY0J6sF0Jf7YRd9Y6fMV3+UFgKUfK/I=
 github.com/moov-io/iso8583 v0.15.1 h1:mg2+B7rX7ESS6xoZip4g5eTBFb7AgK+H5H/HToUKFPw=
 github.com/moov-io/iso8583 v0.15.1/go.mod h1:RXWrTyAXP1diIY0J6sF0Jf7YRd9Y6fMV3+UFgKUfK/I=
+github.com/moov-io/iso8583 v0.15.2 h1:2CdYXA1I+hY7AaE2Ey0eTMmb3YuwL63uVsHDWNBfJFE=
+github.com/moov-io/iso8583 v0.15.2/go.mod h1:P/u3VHcgXKB88jFNMoBL4clWWkHNqWDe8C8DoyKwxJk=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
@@ -26,6 +28,8 @@ github.com/yerden/go-util v1.1.4/go.mod h1:3HeLrvtkEeAv67ARostM9Yn0DcAVqgJ3uAiCu
 golang.org/x/sys v0.0.0-20190913121621-c3b328c6e5a7/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
 golang.org/x/text v0.6.0 h1:3XmdazWV+ubf7QgHSTWeykHOci5oeekaGJBLkrkaw4k=
 golang.org/x/text v0.6.0/go.mod h1:mrYo+phRRbMaCq/xk9113O4dZlRixOauAjOtrjsXDZ8=
+golang.org/x/text v0.8.0 h1:57P1ETyNKtuIjB4SRd15iJxuhj8Gc416Y78H3qgMh68=
+golang.org/x/text v0.8.0/go.mod h1:e1OnstbJyHTd6l/uOt8jFFHp6TRDWZR/bV3emEE/zU8=
 gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
 gopkg.in/check.v1 v1.0.0-20190902080502-41f04d3bba15 h1:YR8cESwS4TdDjEe65xsg0ogRM/Nc3DYOhEAlW+xobZo=
 gopkg.in/yaml.v3 v3.0.0-20200313102051-9f266ea9e77c/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=
