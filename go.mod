@@ -3,7 +3,7 @@ module github.com/moov-io/iso8583-connection
 go 1.19
 
 require (
-	github.com/moov-io/iso8583 v0.15.2
+	github.com/moov-io/iso8583 v0.15.3
 	github.com/stretchr/testify v1.8.2
 )
 
