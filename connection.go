@@ -366,20 +366,26 @@ func (c *Connection) Send(message *iso8583.Message) (*iso8583.Message, error) {
 
 	c.requestsCh <- req
 
+	sendTimeoutTimer := time.NewTimer(c.Opts.SendTimeout)
+	defer sendTimeoutTimer.Stop()
+
 	select {
 	case resp = <-req.replyCh:
 	case err = <-req.errCh:
-	case <-time.After(c.Opts.SendTimeout):
+	case <-sendTimeoutTimer.C:
 		err = ErrSendTimeout
 		// reply can still be sent after SendTimeout received.
 		// if we have UnmatchedMessageHandler set, then we want reply
 		// to not be lost but handled by it.
 		if c.Opts.InboundMessageHandler != nil {
 			go func() {
+				oneMoreSecondTimer := time.NewTimer(time.Second)
+				defer oneMoreSecondTimer.Stop()
+
 				select {
 				case resp := <-req.replyCh:
 					go c.Opts.InboundMessageHandler(c, resp)
-				case <-time.After(1 * time.Second):
+				case <-oneMoreSecondTimer.C:
 					// if no reply received within 1 second
 					// we return from the goroutine
 					return
@@ -435,9 +441,12 @@ func (c *Connection) Reply(message *iso8583.Message) error {
 
 	c.requestsCh <- req
 
+	sendTimeoutTimer := time.NewTimer(c.Opts.SendTimeout)
+	defer sendTimeoutTimer.Stop()
+
 	select {
 	case err = <-req.errCh:
-	case <-time.After(c.Opts.SendTimeout):
+	case <-sendTimeoutTimer.C:
 		err = ErrSendTimeout
 	}
 
@@ -506,6 +515,8 @@ func (c *Connection) writeLoop() {
 	var err error
 
 	for err == nil {
+		idleTimeTimer := time.NewTimer(c.Opts.IdleTime)
+
 		select {
 		case req := <-c.requestsCh:
 			// if it's a request message, not a response
@@ -531,15 +542,17 @@ func (c *Connection) writeLoop() {
 			if req.replyCh == nil {
 				req.errCh <- nil
 			}
-		case <-time.After(c.Opts.IdleTime):
+		case <-idleTimeTimer.C:
 			// if no message was sent during idle time, we have to send ping message
 			if c.Opts.PingHandler != nil {
 				go c.Opts.PingHandler(c)
 			}
 		case <-c.done:
+			idleTimeTimer.Stop()
 			return
 		}
 
+		idleTimeTimer.Stop()
 	}
 
 	c.handleConnectionError(err)
@@ -575,16 +588,21 @@ func (c *Connection) readLoop() {
 
 func (c *Connection) readResponseLoop() {
 	for {
+		readTimeoutTimer := time.NewTimer(c.Opts.ReadTimeout)
+
 		select {
 		case mess := <-c.readResponseCh:
 			go c.handleResponse(mess)
-		case <-time.After(c.Opts.ReadTimeout):
+		case <-readTimeoutTimer.C:
 			if c.Opts.ReadTimeoutHandler != nil {
 				go c.Opts.ReadTimeoutHandler(c)
 			}
 		case <-c.done:
+			readTimeoutTimer.Stop()
 			return
 		}
+
+		readTimeoutTimer.Stop()
 	}
 }
 
