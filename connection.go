@@ -20,7 +20,7 @@ var (
 	ErrSendTimeout      = errors.New("message send timeout")
 )
 
-const DefaultTransmissionDateTimeFormat string = "0102150405" // YYMMDDhhmmss
+const DefaultTransmissionDateTimeFormat string = "060102150405" // YYMMDDhhmmss
 
 // MessageLengthReader reads message header from the r and returns message length
 type MessageLengthReader func(r io.Reader) (int, error)
