@@ -350,7 +350,7 @@ func (c *Connection) Send(message *iso8583.Message) (*iso8583.Message, error) {
 	}
 
 	// prepare request
-	reqID, err := requestID(message)
+	reqID, err := c.Opts.RequestIDGenerator.GenerateRequestID(message)
 	if err != nil {
 		return nil, fmt.Errorf("creating request ID: %w", err)
 	}
@@ -451,26 +451,6 @@ func (c *Connection) Reply(message *iso8583.Message) error {
 	}
 
 	return err
-}
-
-// requestID is a unique identifier for a request.  responses from the server
-// are not guaranteed to return in order so we must have an id to reference the
-// original req. built from stan and datetime
-func requestID(message *iso8583.Message) (string, error) {
-	if message == nil {
-		return "", fmt.Errorf("message required")
-	}
-
-	stan, err := message.GetString(11)
-	if err != nil {
-		return "", fmt.Errorf("getting STAN (field 11) of the message: %w", err)
-	}
-
-	if stan == "" {
-		return "", errors.New("STAN is missing")
-	}
-
-	return stan, nil
 }
 
 const (
@@ -622,7 +602,7 @@ func (c *Connection) handleResponse(rawMessage []byte) {
 	}
 
 	if isResponse(message) {
-		reqID, err := requestID(message)
+		reqID, err := c.Opts.RequestIDGenerator.GenerateRequestID(message)
 		if err != nil {
 			c.handleError(fmt.Errorf("creating request ID:  %w", err))
 			return
