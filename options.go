@@ -60,18 +60,23 @@ type Options struct {
 
 	// OnClose is called synchronously before a connection is closed
 	OnClose func(c *Connection) error
+
+	// RequestIDGenerator is used to generate a unique identifier for a request
+	// so that responses from the server can be matched to the original request.
+	RequestIDGenerator RequestIDGenerator
 }
 
 type Option func(*Options) error
 
 func GetDefaultOptions() Options {
 	return Options{
-		ConnectTimeout: 10 * time.Second,
-		SendTimeout:    30 * time.Second,
-		IdleTime:       5 * time.Second,
-		ReadTimeout:    60 * time.Second,
-		PingHandler:    nil,
-		TLSConfig:      nil,
+		ConnectTimeout:     10 * time.Second,
+		SendTimeout:        30 * time.Second,
+		IdleTime:           5 * time.Second,
+		ReadTimeout:        60 * time.Second,
+		PingHandler:        nil,
+		TLSConfig:          nil,
+		RequestIDGenerator: &defaultRequestIDGenerator{},
 	}
 }
 
@@ -228,6 +233,14 @@ func SetTLSConfig(cfg func(*tls.Config)) Option {
 			o.TLSConfig = defaultTLSConfig()
 		}
 		cfg(o.TLSConfig)
+		return nil
+	}
+}
+
+// RequestIDGenerator sets a RequestIDGenerator option
+func SetRequestIDGenerator(g RequestIDGenerator) Option {
+	return func(o *Options) error {
+		o.RequestIDGenerator = g
 		return nil
 	}
 }
