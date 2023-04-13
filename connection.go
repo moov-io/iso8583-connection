@@ -356,7 +356,7 @@ func (c *Connection) Send(message *iso8583.Message) (*iso8583.Message, error) {
 	req := request{
 		rawMessage: buf.Bytes(),
 		requestID:  reqID,
-		replyCh:    make(chan *iso8583.Message),
+		replyCh:    make(chan *iso8583.Message, 1),
 		errCh:      make(chan error),
 	}
 
