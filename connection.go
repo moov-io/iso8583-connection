@@ -373,23 +373,18 @@ func (c *Connection) Send(message *iso8583.Message) (*iso8583.Message, error) {
 	case <-sendTimeoutTimer.C:
 		err = ErrSendTimeout
 		// reply can still be sent after SendTimeout received.
-		// if we have UnmatchedMessageHandler set, then we want reply
-		// to not be lost but handled by it.
-		if c.Opts.InboundMessageHandler != nil {
-			go func() {
-				oneMoreSecondTimer := time.NewTimer(time.Second)
-				defer oneMoreSecondTimer.Stop()
-
-				select {
-				case resp := <-req.replyCh:
+		// if we have InboundMessageHandler set, then we want reply
+		// to be handled by it.
+		defer func() {
+			select {
+			case resp := <-req.replyCh:
+				if c.Opts.InboundMessageHandler != nil {
 					go c.Opts.InboundMessageHandler(c, resp)
-				case <-oneMoreSecondTimer.C:
-					// if no reply received within 1 second
-					// we return from the goroutine
-					return
 				}
-			}()
-		}
+			default:
+				return
+			}
+		}()
 	}
 
 	c.pendingRequestsMu.Lock()
