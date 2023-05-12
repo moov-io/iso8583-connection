@@ -122,7 +122,14 @@ func NewTestServerWithAddr(addr string) (*testServer, error) {
 	var srv *testServer
 
 	// define logic for our test server
-	testServerLogic := func(c *connection.Connection, message *iso8583.Message) {
+	testServerLogic := func(c *connection.Connection, connMessage connection.Message) {
+		message, ok := connMessage.(*iso8583.Message)
+		if !ok {
+			log.Printf("received message is not *iso8583.Message")
+			log.Printf("received message: %#v", connMessage)
+			return
+		}
+
 		mti, err := message.GetMTI()
 		if err != nil {
 			log.Printf("getting MTI: %s", err.Error())

@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"os"
 	"time"
-
-	"github.com/moov-io/iso8583"
 )
 
 type Options struct {
@@ -39,7 +37,7 @@ type Options struct {
 	// for the following use cases:
 	// * to log timed out responses
 	// * to handle network management messages (echo, heartbeat, etc.)
-	InboundMessageHandler func(c *Connection, message *iso8583.Message)
+	InboundMessageHandler func(c *Connection, message Message)
 
 	// ConnectionClosedHandlers is called when connection is closed by server or there
 	// were network errors during network read/write
@@ -64,6 +62,9 @@ type Options struct {
 	// RequestIDGenerator is used to generate a unique identifier for a request
 	// so that responses from the server can be matched to the original request.
 	RequestIDGenerator RequestIDGenerator
+
+	// MessageUnpacker is used to unpack messages received from the server
+	MessageUnpacker func([]byte) (Message, error)
 }
 
 type Option func(*Options) error
@@ -144,7 +145,7 @@ func ConnectionEstablishedHandler(handler func(c *Connection)) Option {
 }
 
 // InboundMessageHandler sets an InboundMessageHandler option
-func InboundMessageHandler(handler func(c *Connection, message *iso8583.Message)) Option {
+func InboundMessageHandler(handler func(c *Connection, message Message)) Option {
 	return func(o *Options) error {
 		o.InboundMessageHandler = handler
 		return nil

@@ -441,8 +441,11 @@ func TestClient_Send(t *testing.T) {
 			response, err := c.Send(message)
 			require.NoError(t, err)
 
+			iso8583Message, ok := response.(*iso8583.Message)
+			require.True(t, ok)
+
 			// put received STAN into slice so we can check the order
-			stan1, err = response.GetString(11)
+			stan1, err = iso8583Message.GetString(11)
 			require.NoError(t, err)
 			mu.Lock()
 			receivedSTANs = append(receivedSTANs, stan1)
@@ -468,8 +471,11 @@ func TestClient_Send(t *testing.T) {
 			response, err := c.Send(message)
 			require.NoError(t, err)
 
+			iso8583Message, ok := response.(*iso8583.Message)
+			require.True(t, ok)
+
 			// put received STAN into slice so we can check the order
-			stan2, err = response.GetString(11)
+			stan2, err = iso8583Message.GetString(11)
 			require.NoError(t, err)
 			mu.Lock()
 			receivedSTANs = append(receivedSTANs, stan2)
@@ -541,7 +547,10 @@ func TestClient_Send(t *testing.T) {
 		// unmatchedMessageHandler should be called for the second message
 		// reply because connection.Send will return ErrSendTimeout and
 		// reply will not be handled by the original caller
-		unmatchedMessageHandler := func(c *connection.Connection, message *iso8583.Message) {
+		unmatchedMessageHandler := func(c *connection.Connection, connMessage connection.Message) {
+			message, ok := connMessage.(*iso8583.Message)
+			require.True(t, ok)
+
 			mti, err := message.GetMTI()
 			require.NoError(t, err)
 			require.Equal(t, "0810", mti)
@@ -584,7 +593,10 @@ func TestClient_Send(t *testing.T) {
 	t.Run("it handles incoming messages with same STANs not as reply but as incoming message", func(t *testing.T) {
 		originalSTAN := getSTAN()
 
-		unmatchedMessageHandler := func(c *connection.Connection, message *iso8583.Message) {
+		unmatchedMessageHandler := func(c *connection.Connection, connMessage connection.Message) {
+			message, ok := connMessage.(*iso8583.Message)
+			require.True(t, ok)
+
 			mti, err := message.GetMTI()
 			require.NoError(t, err)
 			require.Equal(t, "0800", mti)
@@ -952,7 +964,7 @@ func TestClient_SetOptions(t *testing.T) {
 	require.Nil(t, c.Opts.InboundMessageHandler)
 	require.Nil(t, c.Opts.TLSConfig)
 
-	require.NoError(t, c.SetOptions(connection.InboundMessageHandler(func(c *connection.Connection, m *iso8583.Message) {})))
+	require.NoError(t, c.SetOptions(connection.InboundMessageHandler(func(c *connection.Connection, m connection.Message) {})))
 	require.NotNil(t, c.Opts.InboundMessageHandler)
 
 	require.NoError(t, c.SetOptions(connection.PingHandler(func(c *connection.Connection) {})))

@@ -65,9 +65,6 @@ type Connection struct {
 	readResponseCh chan []byte
 	done           chan struct{}
 
-	// spec that will be used to unpack received messages
-	spec *iso8583.MessageSpec
-
 	// readMessageLength is the function that reads message length header
 	// from the connection, decodes and returns message length
 	readMessageLength MessageLengthReader
@@ -101,6 +98,8 @@ func New(addr string, spec *iso8583.MessageSpec, mlReader MessageLengthReader, m
 		}
 	}
 
+	opts.MessageUnpacker = defaultMessageUnpacker(spec)
+
 	return &Connection{
 		addr:               addr,
 		Opts:               opts,
@@ -108,7 +107,6 @@ func New(addr string, spec *iso8583.MessageSpec, mlReader MessageLengthReader, m
 		readResponseCh:     make(chan []byte),
 		done:               make(chan struct{}),
 		respMap:            make(map[string]response),
-		spec:               spec,
 		readMessageLength:  mlReader,
 		writeMessageLength: mlWriter,
 	}, nil
@@ -294,6 +292,11 @@ func (c *Connection) Done() <-chan struct{} {
 	return c.done
 }
 
+type Message interface {
+	GetMTI() (string, error)
+	Pack() ([]byte, error)
+}
+
 // request represents request to the ISO 8583 server
 type request struct {
 	// includes length header and message itself
@@ -303,7 +306,7 @@ type request struct {
 	requestID string
 
 	// channel to receive reply from the server
-	replyCh chan *iso8583.Message
+	replyCh chan Message //*iso8583.Message
 
 	// channel to receive error that may happen down the road
 	errCh chan error
@@ -311,14 +314,14 @@ type request struct {
 
 type response struct {
 	// channel to receive reply from the server
-	replyCh chan *iso8583.Message
+	replyCh chan Message //*iso8583.Message
 
 	// channel to receive error that may happen down the road
 	errCh chan error
 }
 
 // Send sends message and waits for the response
-func (c *Connection) Send(message *iso8583.Message) (*iso8583.Message, error) {
+func (c *Connection) Send(message Message) (Message, error) {
 	c.mutex.Lock()
 	if c.closing {
 		c.mutex.Unlock()
@@ -356,11 +359,11 @@ func (c *Connection) Send(message *iso8583.Message) (*iso8583.Message, error) {
 	req := request{
 		rawMessage: buf.Bytes(),
 		requestID:  reqID,
-		replyCh:    make(chan *iso8583.Message),
+		replyCh:    make(chan Message),
 		errCh:      make(chan error),
 	}
 
-	var resp *iso8583.Message
+	var resp Message
 
 	c.requestsCh <- req
 
@@ -402,7 +405,7 @@ func (c *Connection) Send(message *iso8583.Message) (*iso8583.Message, error) {
 // Reply sends the message and does not wait for a reply to be received.
 // Any reply received for message send using Reply will be handled with
 // unmatchedMessageHandler
-func (c *Connection) Reply(message *iso8583.Message) error {
+func (c *Connection) Reply(message Message) error {
 	c.mutex.Lock()
 	if c.closing {
 		c.mutex.Unlock()
@@ -420,6 +423,9 @@ func (c *Connection) Reply(message *iso8583.Message) error {
 	if err != nil {
 		return fmt.Errorf("packing message: %w", err)
 	}
+
+	// c.messageWriter(&buf, message)
+	// c.messageReader(&buf, message)
 
 	// create header
 	_, err = c.writeMessageLength(&buf, len(packed))
@@ -463,7 +469,7 @@ const (
 	messageFunctionInstructionAcknowledgment  = "7"
 )
 
-func isResponse(message *iso8583.Message) bool {
+func isResponse(message Message) bool {
 	if message == nil {
 		return false
 	}
@@ -536,32 +542,43 @@ func (c *Connection) writeLoop() {
 	c.handleConnectionError(err)
 }
 
-// readLoop reads data from the socket (message length header and raw message)
-// and runs a goroutine to handle the message
-func (c *Connection) readLoop() {
+func (c *Connection) readRawMessage(r io.Reader) ([]byte, error) {
 	var err error
 	var messageLength int
 
+	messageLength, err = c.readMessageLength(r)
+	if err != nil {
+		return nil, fmt.Errorf("reading message length: %w", err)
+	}
+
+	// read the packed message
+	rawMessage := make([]byte, messageLength)
+	_, err = io.ReadFull(r, rawMessage)
+	if err != nil {
+		return nil, fmt.Errorf("reading message from connection: %w", err)
+	}
+
+	return rawMessage, nil
+}
+
+// readLoop reads data from the socket (message length header and raw message)
+// and runs a goroutine to handle the message
+func (c *Connection) readLoop() {
+	var outErr error
+
 	r := bufio.NewReader(c.conn)
 	for {
-		messageLength, err = c.readMessageLength(r)
-		if err != nil {
-			c.handleError(utils.NewSafeError(err, "failed to read message length"))
-			break
-		}
-
-		// read the packed message
-		rawMessage := make([]byte, messageLength)
-		_, err = io.ReadFull(r, rawMessage)
+		rawMessage, err := c.readRawMessage(r)
 		if err != nil {
 			c.handleError(utils.NewSafeError(err, "failed to read message from connection"))
+			outErr = err
 			break
 		}
 
 		c.readResponseCh <- rawMessage
 	}
 
-	c.handleConnectionError(err)
+	c.handleConnectionError(outErr)
 }
 
 func (c *Connection) readResponseLoop() {
@@ -584,12 +601,15 @@ func (c *Connection) readResponseLoop() {
 	}
 }
 
+func (c *Connection) unpackMessage(rawMessage []byte) (Message, error) {
+	return c.Opts.MessageUnpacker(rawMessage)
+}
+
 // handleResponse unpacks the message and then sends it to the reply channel
 // that corresponds to the message ID (request ID)
 func (c *Connection) handleResponse(rawMessage []byte) {
 	// create message
-	message := iso8583.NewMessage(c.spec)
-	err := message.Unpack(rawMessage)
+	message, err := c.unpackMessage(rawMessage)
 	if err != nil {
 		unpackErr := &ErrUnpack{
 			Err:        err,

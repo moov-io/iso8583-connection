@@ -11,19 +11,24 @@ import (
 // request so that responses from the server can be matched to the original
 // request.
 type RequestIDGenerator interface {
-	GenerateRequestID(msg *iso8583.Message) (string, error)
+	GenerateRequestID(msg Message) (string, error)
 }
 
 // defaultRequestIDGenerator is the default implementation of RequestIDGenerator
 // that uses the STAN (field 11) of the message as the request ID.
 type defaultRequestIDGenerator struct{}
 
-func (d *defaultRequestIDGenerator) GenerateRequestID(message *iso8583.Message) (string, error) {
+func (d *defaultRequestIDGenerator) GenerateRequestID(message Message) (string, error) {
 	if message == nil {
 		return "", fmt.Errorf("message required")
 	}
 
-	stan, err := message.GetString(11)
+	iso8583Message, ok := message.(*iso8583.Message)
+	if !ok {
+		return "", fmt.Errorf("message is not an iso8583.Message")
+	}
+
+	stan, err := iso8583Message.GetString(11)
 	if err != nil {
 		return "", fmt.Errorf("getting STAN (field 11) of the message: %w", err)
 	}
