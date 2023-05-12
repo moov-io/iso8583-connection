@@ -544,14 +544,26 @@ func (c *Connection) readLoop() {
 
 	r := bufio.NewReader(c.conn)
 	for {
+		// attempt to read the length of the incoming message.
 		messageLength, err = c.readMessageLength(r)
 		if err != nil {
 			c.handleError(utils.NewSafeError(err, "failed to read message length"))
 			break
 		}
 
-		// read the packed message
+		// In certain scenarios, the length header may carry additional
+		// information beyond just the length of the message.
+		// For instance, it could indicate a rejection message or a
+		// keep-alive header. In these cases, the MessageLengthReader
+		// may process these internally and return a length of 0,
+		// signaling that there is no further message to read
+		if messageLength == 0 {
+			continue
+		}
+
 		rawMessage := make([]byte, messageLength)
+
+		// read the packed message
 		_, err = io.ReadFull(r, rawMessage)
 		if err != nil {
 			c.handleError(utils.NewSafeError(err, "failed to read message from connection"))

@@ -16,6 +16,7 @@ import (
 	"github.com/moov-io/iso8583-connection/server"
 	"github.com/moov-io/iso8583/encoding"
 	"github.com/moov-io/iso8583/field"
+	"github.com/moov-io/iso8583/network"
 	"github.com/moov-io/iso8583/prefix"
 	"github.com/stretchr/testify/require"
 )
@@ -93,7 +94,9 @@ func TestClient_Connect(t *testing.T) {
 
 	t.Run("Connect times out", func(t *testing.T) {
 		// using a non-routable IP address per https://stackoverflow.com/questions/100841/artificially-create-a-connection-timeout-error
-		c, err := connection.New("10.0.0.0:50000", testSpec, readMessageLength, writeMessageLength, connection.ConnectTimeout(2*time.Second))
+		c, err := connection.New("10.0.0.0:50000", testSpec, readMessageLength, writeMessageLength,
+			connection.ConnectTimeout(500*time.Millisecond),
+		)
 		require.NoError(t, err)
 
 		start := time.Now()
@@ -103,10 +106,10 @@ func TestClient_Connect(t *testing.T) {
 
 		require.Error(t, err)
 		// Test against triple the timeout value to be safe, which should also be well under any OS specific socket timeout
-		// Realistically, the delta should nearly always be exactly 2 seconds
-		require.Less(t, delta, 6*time.Second)
-		// Also confirm the timeout did not happen in less than 2 seconds
-		require.Less(t, 2*time.Second, delta)
+		// Realistically, the delta should nearly always be exactly 500 ms
+		require.Less(t, delta, 1500*time.Millisecond)
+		// Also confirm the timeout did not happen in less than 500 ms
+		require.Less(t, 500*time.Millisecond, delta)
 
 		require.NoError(t, c.Close())
 	})
@@ -196,7 +199,6 @@ func TestClient_Send(t *testing.T) {
 		// we can send iso message to the server
 		response, err := c.Send(message)
 		require.NoError(t, err)
-		time.Sleep(1 * time.Second)
 
 		mti, err := response.GetMTI()
 		require.NoError(t, err)
@@ -315,7 +317,9 @@ func TestClient_Send(t *testing.T) {
 	})
 
 	t.Run("it returns ErrSendTimeout when response was not received during SendTimeout time", func(t *testing.T) {
-		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength, connection.SendTimeout(100*time.Millisecond))
+		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength,
+			connection.SendTimeout(100*time.Millisecond),
+		)
 		require.NoError(t, err)
 
 		err = c.Connect()
@@ -791,6 +795,87 @@ func TestClient_Send(t *testing.T) {
 		}, 200*time.Millisecond, 50*time.Millisecond, "no ping messages were sent after read timeout")
 	})
 
+	t.Run("skips message if length reader returns 0 as message length", func(t *testing.T) {
+		server, err := NewTestServer()
+		require.NoError(t, err)
+		defer server.Close()
+
+		skipMessage := &atomic.Bool{}
+		messagesReceived := &atomic.Int32{}
+
+		// readMessageLength for our test will return 0 as message length
+		// when skipMessage is true, so we can test that connection skips
+		// message with length 0
+		readMessageLength := func(r io.Reader) (int, error) {
+			header := network.NewBinary2BytesHeader()
+
+			n, err := header.ReadFrom(r)
+			if err != nil {
+				return n, err
+			}
+
+			// increment messagesReceived counter
+			messagesReceived.Add(1)
+
+			if skipMessage.Load() {
+				// we should read the message from the reader so we can
+				// continue reading the next message
+				_, err = io.CopyN(io.Discard, r, int64(header.Length()))
+
+				return 0, err
+			}
+
+			return header.Length(), nil
+		}
+
+		c, err := connection.New(
+			server.Addr,
+			testSpec,
+			readMessageLength,
+			writeMessageLength,
+
+			// set short read timeout so our message will timeout quickly
+			// as readMessageLength will return 0 as message length
+			connection.SendTimeout(50*time.Millisecond),
+		)
+		require.NoError(t, err)
+
+		err = c.Connect()
+		require.NoError(t, err)
+		defer c.Close()
+
+		// set skipMessage to true so readMessageLength will return 0
+		skipMessage.Store(true)
+
+		// send first message
+		message := iso8583.NewMessage(testSpec)
+		err = message.Marshal(baseFields{
+			MTI:  field.NewStringValue("0800"),
+			STAN: field.NewStringValue(getSTAN()),
+		})
+		require.NoError(t, err)
+
+		// this message will timeout because readMessageLength will return 0
+		_, err = c.Send(message)
+		require.ErrorIs(t, err, connection.ErrSendTimeout)
+
+		// set skipMessage to false so readMessageLength will return correct
+		skipMessage.Store(false)
+
+		message = iso8583.NewMessage(testSpec)
+		err = message.Marshal(baseFields{
+			MTI:  field.NewStringValue("0800"),
+			STAN: field.NewStringValue(getSTAN()),
+		})
+		require.NoError(t, err)
+
+		_, err = c.Send(message)
+		require.NoError(t, err)
+
+		// we should receive two replies even if first message was
+		// skipped
+		require.Equal(t, int32(2), messagesReceived.Load())
+	})
 }
 
 func TestClient_Options(t *testing.T) {

@@ -149,7 +149,7 @@ func NewTestServerWithAddr(addr string) (*testServer, error) {
 
 			switch code {
 			case TestCaseDelayedResponse:
-				// testing value to "sleep" for a 3 seconds
+				// testing value to "sleep" for 500 ms
 				time.Sleep(500 * time.Millisecond)
 				c.Reply(message)
 			case TestCaseSameSTANRequest:
