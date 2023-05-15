@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -64,6 +65,22 @@ type Options struct {
 	// RequestIDGenerator is used to generate a unique identifier for a request
 	// so that responses from the server can be matched to the original request.
 	RequestIDGenerator RequestIDGenerator
+
+	// MessageReader is used to read a message from the connection
+	// if set, connection's MessageLengthReader will be ignored
+	MessageReader MessageReader
+
+	// MessageWriter is used to write a message to the connection
+	// if set, connection's MessageLengthWriter will be ignored
+	MessageWriter MessageWriter
+}
+
+type MessageReader interface {
+	ReadMessage(r io.Reader) (*iso8583.Message, error)
+}
+
+type MessageWriter interface {
+	WriteMessage(w io.Writer, message *iso8583.Message) error
 }
 
 type Option func(*Options) error
@@ -241,6 +258,22 @@ func SetTLSConfig(cfg func(*tls.Config)) Option {
 func SetRequestIDGenerator(g RequestIDGenerator) Option {
 	return func(o *Options) error {
 		o.RequestIDGenerator = g
+		return nil
+	}
+}
+
+// SetMessageReader sets a MessageReader option
+func SetMessageReader(r MessageReader) Option {
+	return func(o *Options) error {
+		o.MessageReader = r
+		return nil
+	}
+}
+
+// SetMessageWriter sets a MessageWriter option
+func SetMessageWriter(w MessageWriter) Option {
+	return func(o *Options) error {
+		o.MessageWriter = w
 		return nil
 	}
 }

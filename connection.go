@@ -390,6 +390,11 @@ func (c *Connection) Send(message *iso8583.Message) (*iso8583.Message, error) {
 }
 
 func (c *Connection) writeMessage(w io.Writer, message *iso8583.Message) error {
+	if c.Opts.MessageWriter != nil {
+		return c.Opts.MessageWriter.WriteMessage(w, message)
+	}
+
+	// default message writer
 	packed, err := message.Pack()
 	if err != nil {
 		return utils.NewSafeError(err, "packing message")
@@ -563,7 +568,14 @@ func (c *Connection) readLoop() {
 	c.handleConnectionError(outErr)
 }
 
+// readMessage reads message length header and raw message from the connection
+// and returns iso8583.Message and error if any
 func (c *Connection) readMessage(r io.Reader) (*iso8583.Message, error) {
+	if c.Opts.MessageReader != nil {
+		return c.Opts.MessageReader.ReadMessage(r)
+	}
+
+	// default message reader
 	messageLength, err := c.readMessageLength(r)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read message length: %w", err)
