@@ -281,7 +281,7 @@ func TestClient_Send(t *testing.T) {
 
 			var unpackErr *connection.ErrUnpack
 			if errors.As(handledError, &unpackErr) {
-				require.EqualError(t, handledError, "failed to unpack message")
+				require.EqualError(t, handledError, "failed to read message from connection")
 				require.EqualError(t, unpackErr, "failed to unpack field 63: no specification found")
 				require.NotEmpty(t, unpackErr.RawMessage)
 				return true

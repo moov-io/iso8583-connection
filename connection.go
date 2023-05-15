@@ -62,7 +62,7 @@ type Connection struct {
 	Opts           Options
 	conn           io.ReadWriteCloser
 	requestsCh     chan request
-	readResponseCh chan []byte
+	readResponseCh chan *iso8583.Message
 	done           chan struct{}
 
 	// spec that will be used to unpack received messages
@@ -105,7 +105,7 @@ func New(addr string, spec *iso8583.MessageSpec, mlReader MessageLengthReader, m
 		addr:               addr,
 		Opts:               opts,
 		requestsCh:         make(chan request),
-		readResponseCh:     make(chan []byte),
+		readResponseCh:     make(chan *iso8583.Message),
 		done:               make(chan struct{}),
 		respMap:            make(map[string]response),
 		spec:               spec,
@@ -539,29 +539,55 @@ func (c *Connection) writeLoop() {
 // readLoop reads data from the socket (message length header and raw message)
 // and runs a goroutine to handle the message
 func (c *Connection) readLoop() {
-	var err error
-	var messageLength int
+	var outErr error
 
 	r := bufio.NewReader(c.conn)
 	for {
-		messageLength, err = c.readMessageLength(r)
-		if err != nil {
-			c.handleError(utils.NewSafeError(err, "failed to read message length"))
-			break
-		}
-
-		// read the packed message
-		rawMessage := make([]byte, messageLength)
-		_, err = io.ReadFull(r, rawMessage)
+		message, err := c.readMessage(r)
 		if err != nil {
 			c.handleError(utils.NewSafeError(err, "failed to read message from connection"))
+
+			// if err is ErrUnpack, we can still continue reading
+			// from the connection
+			var unpackErr *ErrUnpack
+			if errors.As(err, &unpackErr) {
+				continue
+			}
+
+			outErr = err
 			break
 		}
 
-		c.readResponseCh <- rawMessage
+		c.readResponseCh <- message
 	}
 
-	c.handleConnectionError(err)
+	c.handleConnectionError(outErr)
+}
+
+func (c *Connection) readMessage(r io.Reader) (*iso8583.Message, error) {
+	messageLength, err := c.readMessageLength(r)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read message length: %w", err)
+	}
+
+	// read the packed message
+	rawMessage := make([]byte, messageLength)
+	_, err = io.ReadFull(r, rawMessage)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read message from connection: %w", err)
+	}
+
+	message := iso8583.NewMessage(c.spec)
+	err = message.Unpack(rawMessage)
+	if err != nil {
+		unpackErr := &ErrUnpack{
+			Err:        err,
+			RawMessage: rawMessage,
+		}
+		return nil, fmt.Errorf("unpacking message: %w", unpackErr)
+	}
+
+	return message, nil
 }
 
 func (c *Connection) readResponseLoop() {
@@ -586,18 +612,18 @@ func (c *Connection) readResponseLoop() {
 
 // handleResponse unpacks the message and then sends it to the reply channel
 // that corresponds to the message ID (request ID)
-func (c *Connection) handleResponse(rawMessage []byte) {
+func (c *Connection) handleResponse(message *iso8583.Message) {
 	// create message
-	message := iso8583.NewMessage(c.spec)
-	err := message.Unpack(rawMessage)
-	if err != nil {
-		unpackErr := &ErrUnpack{
-			Err:        err,
-			RawMessage: rawMessage,
-		}
-		c.handleError(utils.NewSafeError(unpackErr, "failed to unpack message"))
-		return
-	}
+	// message := iso8583.NewMessage(c.spec)
+	// err := message.Unpack(rawMessage)
+	// if err != nil {
+	// 	unpackErr := &ErrUnpack{
+	// 		Err:        err,
+	// 		RawMessage: rawMessage,
+	// 	}
+	// 	c.handleError(utils.NewSafeError(unpackErr, "failed to unpack message"))
+	// 	return
+	// }
 
 	if isResponse(message) {
 		reqID, err := c.Opts.RequestIDGenerator.GenerateRequestID(message)
