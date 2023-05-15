@@ -331,20 +331,10 @@ func (c *Connection) Send(message *iso8583.Message) (*iso8583.Message, error) {
 	defer c.wg.Done()
 
 	var buf bytes.Buffer
-	packed, err := message.Pack()
-	if err != nil {
-		return nil, fmt.Errorf("packing message: %w", err)
-	}
 
-	// create header
-	_, err = c.writeMessageLength(&buf, len(packed))
+	err := c.writeMessage(&buf, message)
 	if err != nil {
-		return nil, fmt.Errorf("writing message header to buffer: %w", err)
-	}
-
-	_, err = buf.Write(packed)
-	if err != nil {
-		return nil, fmt.Errorf("writing packed message to buffer: %w", err)
+		return nil, fmt.Errorf("writing message: %w", err)
 	}
 
 	// prepare request
@@ -399,6 +389,26 @@ func (c *Connection) Send(message *iso8583.Message) (*iso8583.Message, error) {
 	return resp, err
 }
 
+func (c *Connection) writeMessage(w io.Writer, message *iso8583.Message) error {
+	packed, err := message.Pack()
+	if err != nil {
+		return utils.NewSafeError(err, "packing message")
+	}
+
+	// create header
+	_, err = c.writeMessageLength(w, len(packed))
+	if err != nil {
+		return fmt.Errorf("writing message header to buffer: %w", err)
+	}
+
+	_, err = w.Write(packed)
+	if err != nil {
+		return fmt.Errorf("writing packed message to buffer: %w", err)
+	}
+
+	return nil
+}
+
 // Reply sends the message and does not wait for a reply to be received.
 // Any reply received for message send using Reply will be handled with
 // unmatchedMessageHandler
@@ -416,20 +426,9 @@ func (c *Connection) Reply(message *iso8583.Message) error {
 
 	// prepare message for sending
 	var buf bytes.Buffer
-	packed, err := message.Pack()
+	err := c.writeMessage(&buf, message)
 	if err != nil {
-		return fmt.Errorf("packing message: %w", err)
-	}
-
-	// create header
-	_, err = c.writeMessageLength(&buf, len(packed))
-	if err != nil {
-		return fmt.Errorf("writing message header to buffer: %w", err)
-	}
-
-	_, err = buf.Write(packed)
-	if err != nil {
-		return fmt.Errorf("writing packed message to buffer: %w", err)
+		return fmt.Errorf("writing message: %w", err)
 	}
 
 	req := request{
