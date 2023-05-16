@@ -919,9 +919,7 @@ func TestClient_Options(t *testing.T) {
 // messageIO is a helper struct to read/write iso8583 messages from/to
 // io.Reader/io.Writer
 type messageIO struct {
-	Spec           *iso8583.MessageSpec
-	requestHeaders map[string]*header
-	mu             sync.Mutex
+	Spec *iso8583.MessageSpec
 }
 
 func (m *messageIO) ReadMessage(r io.Reader) (*iso8583.Message, error) {
@@ -946,27 +944,6 @@ func (m *messageIO) ReadMessage(r io.Reader) (*iso8583.Message, error) {
 		return nil, fmt.Errorf("failed to unpack message: %w", err)
 	}
 
-	mti, err := message.GetMTI()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get mti: %w", err)
-	}
-
-	// if message is request then save header
-	if mti[2] == '0' || mti[2] == '2' {
-		// save message header to be able to write it back
-		// when writing message
-		m.mu.Lock()
-		defer m.mu.Unlock()
-
-		stan, err := message.GetString(11)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get stan: %w", err)
-		}
-
-		// use stan as a key to save header. it can be stan + rrn
-		m.requestHeaders[stan] = h
-	}
-
 	return message, nil
 }
 
@@ -980,32 +957,6 @@ func (m *messageIO) WriteMessage(w io.Writer, message *iso8583.Message) error {
 	// create header with message length
 	h := header{
 		Length: uint16(len(rawMessage)),
-	}
-
-	mti, err := message.GetMTI()
-	if err != nil {
-		return fmt.Errorf("failed to get mti: %w", err)
-	}
-
-	// if message is response then work with saved headers
-	// simple check for response mti, use more complex check
-	if mti[2] == '1' || mti[2] == '3' {
-		// get stan from message
-		stan, err := message.GetString(11)
-		if err != nil {
-			return fmt.Errorf("failed to get stan: %w", err)
-		}
-
-		// get header from saved headers
-		m.mu.Lock()
-		requestHeader, ok := m.requestHeaders[stan]
-		m.mu.Unlock()
-		if !ok {
-			return fmt.Errorf("failed to get header for stan %s", stan)
-		}
-
-		h.SourceID = requestHeader.DestID
-		h.DestID = requestHeader.SourceID
 	}
 
 	// write header
@@ -1025,9 +976,7 @@ func (m *messageIO) WriteMessage(w io.Writer, message *iso8583.Message) error {
 
 // header is 2 bytes length of the message
 type header struct {
-	Length   uint16
-	SourceID [4]byte
-	DestID   [4]byte
+	Length uint16
 }
 
 func TestClientOptionsWithMessageReaderAndWriter(t *testing.T) {
