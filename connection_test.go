@@ -280,7 +280,7 @@ func TestClient_Send(t *testing.T) {
 			mu.Lock()
 			defer mu.Unlock()
 
-			var unpackErr *connection.ErrUnpack
+			var unpackErr *connection.UnpackError
 			if errors.As(handledError, &unpackErr) {
 				require.EqualError(t, handledError, "failed to read message from connection")
 				require.EqualError(t, unpackErr, "failed to unpack field 63: no specification found")

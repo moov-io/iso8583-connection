@@ -40,18 +40,18 @@ const (
 	StatusUnknown Status = ""
 )
 
-// ErrUnpack returns error with possibility to access RawMessage when
+// UnpackError returns error with possibility to access RawMessage when
 // connection failed to unpack message
-type ErrUnpack struct {
+type UnpackError struct {
 	Err        error
 	RawMessage []byte
 }
 
-func (e *ErrUnpack) Error() string {
+func (e *UnpackError) Error() string {
 	return e.Err.Error()
 }
 
-func (e *ErrUnpack) Unwrap() error {
+func (e *UnpackError) Unwrap() error {
 	return e.Err
 }
 
@@ -553,7 +553,7 @@ func (c *Connection) readLoop() {
 
 			// if err is ErrUnpack, we can still continue reading
 			// from the connection
-			var unpackErr *ErrUnpack
+			var unpackErr *UnpackError
 			if errors.As(err, &unpackErr) {
 				continue
 			}
@@ -592,7 +592,7 @@ func (c *Connection) readMessage(r io.Reader) (*iso8583.Message, error) {
 	message := iso8583.NewMessage(c.spec)
 	err = message.Unpack(rawMessage)
 	if err != nil {
-		unpackErr := &ErrUnpack{
+		unpackErr := &UnpackError{
 			Err:        err,
 			RawMessage: rawMessage,
 		}
