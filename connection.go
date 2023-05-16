@@ -588,6 +588,7 @@ func (c *Connection) readMessage(r io.Reader) (*iso8583.Message, error) {
 		return nil, fmt.Errorf("failed to read message from connection: %w", err)
 	}
 
+	// unpack the message
 	message := iso8583.NewMessage(c.spec)
 	err = message.Unpack(rawMessage)
 	if err != nil {
@@ -621,21 +622,9 @@ func (c *Connection) readResponseLoop() {
 	}
 }
 
-// handleResponse unpacks the message and then sends it to the reply channel
-// that corresponds to the message ID (request ID)
+// handleResponse sends message to the reply channel that corresponds to the
+// message ID (request ID)
 func (c *Connection) handleResponse(message *iso8583.Message) {
-	// create message
-	// message := iso8583.NewMessage(c.spec)
-	// err := message.Unpack(rawMessage)
-	// if err != nil {
-	// 	unpackErr := &ErrUnpack{
-	// 		Err:        err,
-	// 		RawMessage: rawMessage,
-	// 	}
-	// 	c.handleError(utils.NewSafeError(unpackErr, "failed to unpack message"))
-	// 	return
-	// }
-
 	if isResponse(message) {
 		reqID, err := c.Opts.RequestIDGenerator.GenerateRequestID(message)
 		if err != nil {

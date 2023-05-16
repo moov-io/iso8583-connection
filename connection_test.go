@@ -1,6 +1,7 @@
 package connection_test
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -913,6 +914,160 @@ func TestClient_Options(t *testing.T) {
 
 		require.Equal(t, 1, callsCounter)
 	})
+}
+
+// messageIO is a helper struct to read/write iso8583 messages from/to
+// io.Reader/io.Writer
+type messageIO struct {
+	Spec           *iso8583.MessageSpec
+	requestHeaders map[string]*header
+	mu             sync.Mutex
+}
+
+func (m *messageIO) ReadMessage(r io.Reader) (*iso8583.Message, error) {
+	// read 2 bytes header
+	h := &header{}
+	err := binary.Read(r, binary.BigEndian, h)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read message length: %w", err)
+	}
+
+	// read message
+	rawMessage := make([]byte, h.Length)
+	_, err = io.ReadFull(r, rawMessage)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read message: %w", err)
+	}
+
+	// unpack message
+	message := iso8583.NewMessage(m.Spec)
+	err = message.Unpack(rawMessage)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unpack message: %w", err)
+	}
+
+	mti, err := message.GetMTI()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get mti: %w", err)
+	}
+
+	// if message is request then save header
+	if mti[2] == '0' || mti[2] == '2' {
+		// save message header to be able to write it back
+		// when writing message
+		m.mu.Lock()
+		defer m.mu.Unlock()
+
+		stan, err := message.GetString(11)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get stan: %w", err)
+		}
+
+		// use stan as a key to save header. it can be stan + rrn
+		m.requestHeaders[stan] = h
+	}
+
+	return message, nil
+}
+
+func (m *messageIO) WriteMessage(w io.Writer, message *iso8583.Message) error {
+	// pack message
+	rawMessage, err := message.Pack()
+	if err != nil {
+		return fmt.Errorf("failed to pack message: %w", err)
+	}
+
+	// create header with message length
+	h := header{
+		Length: uint16(len(rawMessage)),
+	}
+
+	mti, err := message.GetMTI()
+	if err != nil {
+		return fmt.Errorf("failed to get mti: %w", err)
+	}
+
+	// if message is response then work with saved headers
+	// simple check for response mti, use more complex check
+	if mti[2] == '1' || mti[2] == '3' {
+		// get stan from message
+		stan, err := message.GetString(11)
+		if err != nil {
+			return fmt.Errorf("failed to get stan: %w", err)
+		}
+
+		// get header from saved headers
+		m.mu.Lock()
+		requestHeader, ok := m.requestHeaders[stan]
+		m.mu.Unlock()
+		if !ok {
+			return fmt.Errorf("failed to get header for stan %s", stan)
+		}
+
+		h.SourceID = requestHeader.DestID
+		h.DestID = requestHeader.SourceID
+	}
+
+	// write header
+	err = binary.Write(w, binary.BigEndian, h)
+	if err != nil {
+		return fmt.Errorf("failed to write message length: %w", err)
+	}
+
+	// write message
+	_, err = w.Write(rawMessage)
+	if err != nil {
+		return fmt.Errorf("failed to write message: %w", err)
+	}
+
+	return nil
+}
+
+// header is 2 bytes length of the message
+type header struct {
+	Length   uint16
+	SourceID [4]byte
+	DestID   [4]byte
+}
+
+func TestClientOptionsWithMessageReaderAndWriter(t *testing.T) {
+	server, err := NewTestServer()
+	require.NoError(t, err)
+	defer server.Close()
+
+	// create client with custom message reader and writer
+	msgIO := &messageIO{Spec: testSpec}
+
+	c, err := connection.New(server.Addr, nil, nil, nil,
+		connection.SetMessageReader(msgIO),
+		connection.SetMessageWriter(msgIO),
+		connection.ErrorHandler(func(err error) {
+			require.NoError(t, err)
+		}),
+	)
+	require.NoError(t, err)
+
+	err = c.Connect()
+	require.NoError(t, err)
+
+	// network management message
+	message := iso8583.NewMessage(testSpec)
+	err = message.Marshal(baseFields{
+		MTI:  field.NewStringValue("0800"),
+		STAN: field.NewStringValue(getSTAN()),
+	})
+	require.NoError(t, err)
+
+	// we can send iso message to the server
+	response, err := c.Send(message)
+	require.NoError(t, err)
+	time.Sleep(1 * time.Second)
+
+	mti, err := response.GetMTI()
+	require.NoError(t, err)
+	require.Equal(t, "0810", mti)
+
+	require.NoError(t, c.Close())
 }
 
 func TestConnection(t *testing.T) {
