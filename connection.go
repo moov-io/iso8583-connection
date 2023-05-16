@@ -2,7 +2,6 @@ package connection
 
 import (
 	"bufio"
-	"bytes"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -52,6 +51,18 @@ func (e *UnpackError) Error() string {
 }
 
 func (e *UnpackError) Unwrap() error {
+	return e.Err
+}
+
+type PackError struct {
+	Err error
+}
+
+func (e *PackError) Error() string {
+	return e.Err.Error()
+}
+
+func (e *PackError) Unwrap() error {
 	return e.Err
 }
 
@@ -296,8 +307,8 @@ func (c *Connection) Done() <-chan struct{} {
 
 // request represents request to the ISO 8583 server
 type request struct {
-	// includes length header and message itself
-	rawMessage []byte
+	// message to send
+	message *iso8583.Message
 
 	// ID of the request (based on STAN, RRN, etc.)
 	requestID string
@@ -330,13 +341,6 @@ func (c *Connection) Send(message *iso8583.Message) (*iso8583.Message, error) {
 	c.mutex.Unlock()
 	defer c.wg.Done()
 
-	var buf bytes.Buffer
-
-	err := c.writeMessage(&buf, message)
-	if err != nil {
-		return nil, fmt.Errorf("writing message: %w", err)
-	}
-
 	// prepare request
 	reqID, err := c.Opts.RequestIDGenerator.GenerateRequestID(message)
 	if err != nil {
@@ -344,10 +348,10 @@ func (c *Connection) Send(message *iso8583.Message) (*iso8583.Message, error) {
 	}
 
 	req := request{
-		rawMessage: buf.Bytes(),
-		requestID:  reqID,
-		replyCh:    make(chan *iso8583.Message),
-		errCh:      make(chan error),
+		message:   message,
+		requestID: reqID,
+		replyCh:   make(chan *iso8583.Message),
+		errCh:     make(chan error),
 	}
 
 	var resp *iso8583.Message
@@ -397,7 +401,7 @@ func (c *Connection) writeMessage(w io.Writer, message *iso8583.Message) error {
 	// default message writer
 	packed, err := message.Pack()
 	if err != nil {
-		return utils.NewSafeError(err, "packing message")
+		return utils.NewSafeError(&PackError{err}, "packing message")
 	}
 
 	// create header
@@ -429,22 +433,17 @@ func (c *Connection) Reply(message *iso8583.Message) error {
 	c.mutex.Unlock()
 	defer c.wg.Done()
 
-	// prepare message for sending
-	var buf bytes.Buffer
-	err := c.writeMessage(&buf, message)
-	if err != nil {
-		return fmt.Errorf("writing message: %w", err)
-	}
-
 	req := request{
-		rawMessage: buf.Bytes(),
-		errCh:      make(chan error),
+		message: message,
+		errCh:   make(chan error),
 	}
 
 	c.requestsCh <- req
 
 	sendTimeoutTimer := time.NewTimer(c.Opts.SendTimeout)
 	defer sendTimeoutTimer.Stop()
+
+	var err error
 
 	select {
 	case err = <-req.errCh:
@@ -511,9 +510,17 @@ func (c *Connection) writeLoop() {
 				c.pendingRequestsMu.Unlock()
 			}
 
-			_, err = c.conn.Write([]byte(req.rawMessage))
+			err = c.writeMessage(c.conn, req.message)
 			if err != nil {
-				c.handleError(utils.NewSafeError(err, "failed to write message into connection"))
+				c.handleError(fmt.Errorf("writing message: %w", err))
+
+				// if it's a pack error, we can continue to write messages
+				var packErr *PackError
+				if errors.As(err, &packErr) {
+					err = nil
+					continue
+				}
+
 				break
 			}
 
