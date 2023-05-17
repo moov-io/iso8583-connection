@@ -569,6 +569,13 @@ func (c *Connection) readLoop() {
 			break
 		}
 
+		// if readMessage returns nil message, it means that
+		// it was a ping message or something else, not a regular
+		// iso8583 message and we can continue reading
+		if message == nil {
+			continue
+		}
+
 		c.readResponseCh <- message
 	}
 

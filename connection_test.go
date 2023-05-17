@@ -916,6 +916,121 @@ func TestClient_Options(t *testing.T) {
 	})
 }
 
+func TestClientWithMessageReaderAndWriter(t *testing.T) {
+	server, err := NewTestServer()
+	require.NoError(t, err)
+	defer server.Close()
+
+	// create client with custom message reader and writer
+	msgIO := &messageIO{Spec: testSpec}
+
+	t.Run("send and receive iso 8583 message", func(t *testing.T) {
+		c, err := connection.New(server.Addr, nil, nil, nil,
+			connection.SetMessageReader(msgIO),
+			connection.SetMessageWriter(msgIO),
+			connection.ErrorHandler(func(err error) {
+				require.NoError(t, err)
+			}),
+		)
+		require.NoError(t, err)
+
+		err = c.Connect()
+		require.NoError(t, err)
+
+		// network management message
+		message := iso8583.NewMessage(testSpec)
+		err = message.Marshal(baseFields{
+			MTI:  field.NewStringValue("0800"),
+			STAN: field.NewStringValue(getSTAN()),
+		})
+		require.NoError(t, err)
+
+		// we can send iso message to the server
+		response, err := c.Send(message)
+		require.NoError(t, err)
+		time.Sleep(1 * time.Second)
+
+		mti, err := response.GetMTI()
+		require.NoError(t, err)
+		require.Equal(t, "0810", mti)
+
+		require.NoError(t, c.Close())
+	})
+
+	t.Run("continue to read messages if message reader returns nil message and nil error", func(t *testing.T) {
+		// skipMessage is used to skip first message
+		skipMessage := &atomic.Bool{}
+		messagesReceived := &atomic.Int32{}
+
+		// create connection with custom message reader so we can
+		// control what message is returned. msgReader will return nil
+		// message and nil error for the first message and return real
+		// message for the second message
+		msgReader := &messageReader{
+			MessageReader: func(r io.Reader) (*iso8583.Message, error) {
+				msg, err := msgIO.ReadMessage(r)
+				if err != nil {
+					return nil, err
+				}
+
+				messagesReceived.Add(1)
+
+				if skipMessage.Load() {
+					return nil, nil
+				}
+
+				return msg, nil
+			},
+		}
+
+		c, err := connection.New(server.Addr, nil, nil, nil,
+			connection.SetMessageReader(connection.MessageReader(msgReader)),
+			connection.SetMessageWriter(msgIO),
+			connection.ErrorHandler(func(err error) {
+				require.NoError(t, err)
+			}),
+			connection.SendTimeout(500*time.Millisecond),
+		)
+		require.NoError(t, err)
+
+		err = c.Connect()
+		require.NoError(t, err)
+		defer c.Close()
+
+		// set skipMessage to true so readMessage will return nil message
+		skipMessage.Store(true)
+
+		// send first message
+		message := iso8583.NewMessage(testSpec)
+		err = message.Marshal(baseFields{
+			MTI:  field.NewStringValue("0800"),
+			STAN: field.NewStringValue(getSTAN()),
+		})
+		require.NoError(t, err)
+
+		// this message will timeout because we are skipping its reply
+		_, err = c.Send(message)
+		require.ErrorIs(t, err, connection.ErrSendTimeout)
+
+		// set skipMessage to false to read message as usual
+		skipMessage.Store(false)
+
+		message = iso8583.NewMessage(testSpec)
+		err = message.Marshal(baseFields{
+			MTI:  field.NewStringValue("0800"),
+			STAN: field.NewStringValue(getSTAN()),
+		})
+		require.NoError(t, err)
+
+		_, err = c.Send(message)
+		require.NoError(t, err)
+
+		// we should receive two replies even if first message was
+		// skipped
+		require.Equal(t, int32(2), messagesReceived.Load())
+	})
+}
+
 // messageIO is a helper struct to read/write iso8583 messages from/to
 // io.Reader/io.Writer
 type messageIO struct {
@@ -974,49 +1089,19 @@ func (m *messageIO) WriteMessage(w io.Writer, message *iso8583.Message) error {
 	return nil
 }
 
+// messageReader is a helper struct to read iso8583 messages from
+// io.Reader with custom message reader that test can control
+type messageReader struct {
+	MessageReader func(r io.Reader) (*iso8583.Message, error)
+}
+
+func (r *messageReader) ReadMessage(reader io.Reader) (*iso8583.Message, error) {
+	return r.MessageReader(reader)
+}
+
 // header is 2 bytes length of the message
 type header struct {
 	Length uint16
-}
-
-func TestClientOptionsWithMessageReaderAndWriter(t *testing.T) {
-	server, err := NewTestServer()
-	require.NoError(t, err)
-	defer server.Close()
-
-	// create client with custom message reader and writer
-	msgIO := &messageIO{Spec: testSpec}
-
-	c, err := connection.New(server.Addr, nil, nil, nil,
-		connection.SetMessageReader(msgIO),
-		connection.SetMessageWriter(msgIO),
-		connection.ErrorHandler(func(err error) {
-			require.NoError(t, err)
-		}),
-	)
-	require.NoError(t, err)
-
-	err = c.Connect()
-	require.NoError(t, err)
-
-	// network management message
-	message := iso8583.NewMessage(testSpec)
-	err = message.Marshal(baseFields{
-		MTI:  field.NewStringValue("0800"),
-		STAN: field.NewStringValue(getSTAN()),
-	})
-	require.NoError(t, err)
-
-	// we can send iso message to the server
-	response, err := c.Send(message)
-	require.NoError(t, err)
-	time.Sleep(1 * time.Second)
-
-	mti, err := response.GetMTI()
-	require.NoError(t, err)
-	require.Equal(t, "0810", mti)
-
-	require.NoError(t, c.Close())
 }
 
 func TestConnection(t *testing.T) {
