@@ -14,7 +14,6 @@ import (
 
 	"github.com/moov-io/iso8583"
 	connection "github.com/moov-io/iso8583-connection"
-	"github.com/moov-io/iso8583-connection/server"
 	"github.com/moov-io/iso8583/encoding"
 	"github.com/moov-io/iso8583/field"
 	"github.com/moov-io/iso8583/prefix"
@@ -1151,23 +1150,23 @@ func TestClient_SetOptions(t *testing.T) {
 	require.NotNil(t, c.Opts.TLSConfig)
 }
 
-func BenchmarkSend100(b *testing.B) { benchmarkSend(100, b) }
+func BenchmarkProcess100Messages(b *testing.B) { benchmarkSend(100, b) }
 
-func BenchmarkSend1000(b *testing.B) { benchmarkSend(1000, b) }
+func BenchmarkProcess1000Messages(b *testing.B) { benchmarkSend(1000, b) }
 
-func BenchmarkSend10000(b *testing.B) { benchmarkSend(10000, b) }
+func BenchmarkProcess10000Messages(b *testing.B) { benchmarkSend(10000, b) }
 
-func BenchmarkSend100000(b *testing.B) { benchmarkSend(100000, b) }
+func BenchmarkProcess100000Messages(b *testing.B) { benchmarkSend(100000, b) }
 
 func benchmarkSend(m int, b *testing.B) {
-	server := server.New(testSpec, readMessageLength, writeMessageLength)
-	// start on random port
-	err := server.Start("127.0.0.1:")
+	server, err := NewTestServer()
 	if err != nil {
-		b.Fatal("starting server: ", err)
+		b.Fatal("starting test server: ", err)
 	}
 
-	c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength)
+	c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength,
+		connection.SendTimeout(500*time.Millisecond),
+	)
 	if err != nil {
 		b.Fatal("creating client: ", err)
 	}
@@ -1204,6 +1203,7 @@ func processMessages(b *testing.B, m int, c *connection.Connection) {
 
 			message := iso8583.NewMessage(testSpec)
 			message.MTI("0800")
+			message.Field(11, getSTAN())
 
 			_, err := c.Send(message)
 			if err != nil {
