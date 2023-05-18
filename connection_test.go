@@ -205,6 +205,34 @@ func TestClient_Send(t *testing.T) {
 		require.NoError(t, c.Close())
 	})
 
+	t.Run("returns PackError when it fails to pack message", func(t *testing.T) {
+		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength)
+		require.NoError(t, err)
+		defer c.Close()
+
+		err = c.Connect()
+		require.NoError(t, err)
+
+		message := iso8583.NewMessage(testSpec)
+
+		// setting MTI to 1 digit will cause PackError as it should be
+		// 4 digits
+		message.MTI("1")
+
+		// we should set STAN as we check it before we pack the message
+		err = message.Field(11, "123456")
+		require.NoError(t, err)
+
+		// when we send the message
+		_, err = c.Send(message)
+
+		// then Send should return PackError
+		require.Error(t, err)
+
+		var packError *connection.PackError
+		require.ErrorAs(t, err, &packError)
+	})
+
 	t.Run("returns UnpackError with RawMessage when it fails to unpack message", func(t *testing.T) {
 		// Given
 		// connection with specification different from server

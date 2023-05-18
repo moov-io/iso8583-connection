@@ -401,7 +401,7 @@ func (c *Connection) writeMessage(w io.Writer, message *iso8583.Message) error {
 	// default message writer
 	packed, err := message.Pack()
 	if err != nil {
-		return utils.NewSafeError(&PackError{err}, "packing message")
+		return utils.NewSafeError(&PackError{err}, "failed to pack message")
 	}
 
 	// create header
@@ -514,10 +514,18 @@ func (c *Connection) writeLoop() {
 			if err != nil {
 				c.handleError(fmt.Errorf("writing message: %w", err))
 
-				// if it's a pack error, we can continue to write messages
 				var packErr *PackError
 				if errors.As(err, &packErr) {
+					// let caller know that his message was not not sent
+					// because of pack error. We don't set all type of errors to errCh
+					// as this case is handled by handleConnectionError(err)
+					// which sends the same error to all pending requests, including
+					// this one
+					req.errCh <- err
+
 					err = nil
+
+					// we can continue to write other messages
 					continue
 				}
 
