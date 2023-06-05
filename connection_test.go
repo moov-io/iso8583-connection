@@ -1,6 +1,7 @@
 package connection_test
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -13,7 +14,6 @@ import (
 
 	"github.com/moov-io/iso8583"
 	connection "github.com/moov-io/iso8583-connection"
-	"github.com/moov-io/iso8583-connection/server"
 	"github.com/moov-io/iso8583/encoding"
 	"github.com/moov-io/iso8583/field"
 	"github.com/moov-io/iso8583/prefix"
@@ -143,6 +143,33 @@ func TestClient_Connect(t *testing.T) {
 			return atomic.LoadInt32(&onConnectCalled) == 1
 		}, 100*time.Millisecond, 20*time.Millisecond, "onConnect should be called")
 	})
+
+	t.Run("OnClose is called", func(t *testing.T) {
+		server, err := NewTestServer()
+		require.NoError(t, err)
+		defer server.Close()
+
+		var onClosedCalled int32
+		onClose := func(c *connection.Connection) error {
+			// increase the counter
+			atomic.AddInt32(&onClosedCalled, 1)
+			return nil
+		}
+
+		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength, connection.OnClose(onClose))
+		require.NoError(t, err)
+
+		// err = c.Connect()
+		// require.NoError(t, err)
+
+		err = c.Close()
+		require.NoError(t, err)
+
+		// eventually the onClosedCalled should be 1
+		require.Eventually(t, func() bool {
+			return atomic.LoadInt32(&onClosedCalled) == 1
+		}, 100*time.Millisecond, 20*time.Millisecond, "onClose should be called")
+	})
 }
 
 func TestClient_Send(t *testing.T) {
@@ -176,6 +203,34 @@ func TestClient_Send(t *testing.T) {
 		require.Equal(t, "0810", mti)
 
 		require.NoError(t, c.Close())
+	})
+
+	t.Run("returns PackError when it fails to pack message", func(t *testing.T) {
+		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength)
+		require.NoError(t, err)
+		defer c.Close()
+
+		err = c.Connect()
+		require.NoError(t, err)
+
+		message := iso8583.NewMessage(testSpec)
+
+		// setting MTI to 1 digit will cause PackError as it should be
+		// 4 digits
+		message.MTI("1")
+
+		// we should set STAN as we check it before we pack the message
+		err = message.Field(11, "123456")
+		require.NoError(t, err)
+
+		// when we send the message
+		_, err = c.Send(message)
+
+		// then Send should return PackError
+		require.Error(t, err)
+
+		var packError *connection.PackError
+		require.ErrorAs(t, err, &packError)
 	})
 
 	t.Run("returns UnpackError with RawMessage when it fails to unpack message", func(t *testing.T) {
@@ -252,9 +307,9 @@ func TestClient_Send(t *testing.T) {
 			mu.Lock()
 			defer mu.Unlock()
 
-			var unpackErr *connection.ErrUnpack
+			var unpackErr *connection.UnpackError
 			if errors.As(handledError, &unpackErr) {
-				require.EqualError(t, handledError, "failed to unpack message")
+				require.EqualError(t, handledError, "failed to read message from connection")
 				require.EqualError(t, unpackErr, "failed to unpack field 63: no specification found")
 				require.NotEmpty(t, unpackErr.RawMessage)
 				return true
@@ -746,7 +801,7 @@ func TestClient_Send(t *testing.T) {
 		}
 
 		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength,
-			connection.ReadTimeout(100*time.Millisecond),
+			connection.ReadTimeout(50*time.Millisecond),
 			connection.ReadTimeoutHandler(readTimeoutHandler),
 		)
 		require.NoError(t, err)
@@ -888,6 +943,194 @@ func TestClient_Options(t *testing.T) {
 	})
 }
 
+func TestClientWithMessageReaderAndWriter(t *testing.T) {
+	server, err := NewTestServer()
+	require.NoError(t, err)
+	defer server.Close()
+
+	// create client with custom message reader and writer
+	msgIO := &messageIO{Spec: testSpec}
+
+	t.Run("send and receive iso 8583 message", func(t *testing.T) {
+		c, err := connection.New(server.Addr, nil, nil, nil,
+			connection.SetMessageReader(msgIO),
+			connection.SetMessageWriter(msgIO),
+			connection.ErrorHandler(func(err error) {
+				require.NoError(t, err)
+			}),
+		)
+		require.NoError(t, err)
+
+		err = c.Connect()
+		require.NoError(t, err)
+
+		// network management message
+		message := iso8583.NewMessage(testSpec)
+		err = message.Marshal(baseFields{
+			MTI:  field.NewStringValue("0800"),
+			STAN: field.NewStringValue(getSTAN()),
+		})
+		require.NoError(t, err)
+
+		// we can send iso message to the server
+		response, err := c.Send(message)
+		require.NoError(t, err)
+		time.Sleep(1 * time.Second)
+
+		mti, err := response.GetMTI()
+		require.NoError(t, err)
+		require.Equal(t, "0810", mti)
+
+		require.NoError(t, c.Close())
+	})
+
+	t.Run("continue to read messages if message reader returns nil message and nil error", func(t *testing.T) {
+		// skipMessage is used to skip first message
+		skipMessage := &atomic.Bool{}
+		messagesReceived := &atomic.Int32{}
+
+		// create connection with custom message reader so we can
+		// control what message is returned. msgReader will return nil
+		// message and nil error for the first message and return real
+		// message for the second message
+		msgReader := &messageReader{
+			MessageReader: func(r io.Reader) (*iso8583.Message, error) {
+				msg, err := msgIO.ReadMessage(r)
+				if err != nil {
+					return nil, err
+				}
+
+				messagesReceived.Add(1)
+
+				if skipMessage.Load() {
+					return nil, nil
+				}
+
+				return msg, nil
+			},
+		}
+
+		c, err := connection.New(server.Addr, nil, nil, nil,
+			connection.SetMessageReader(connection.MessageReader(msgReader)),
+			connection.SetMessageWriter(msgIO),
+			connection.ErrorHandler(func(err error) {
+				require.NoError(t, err)
+			}),
+			connection.SendTimeout(500*time.Millisecond),
+		)
+		require.NoError(t, err)
+
+		err = c.Connect()
+		require.NoError(t, err)
+		defer c.Close()
+
+		// set skipMessage to true so readMessage will return nil message
+		skipMessage.Store(true)
+
+		// send first message
+		message := iso8583.NewMessage(testSpec)
+		err = message.Marshal(baseFields{
+			MTI:  field.NewStringValue("0800"),
+			STAN: field.NewStringValue(getSTAN()),
+		})
+		require.NoError(t, err)
+
+		// this message will timeout because we are skipping its reply
+		_, err = c.Send(message)
+		require.ErrorIs(t, err, connection.ErrSendTimeout)
+
+		// set skipMessage to false to read message as usual
+		skipMessage.Store(false)
+
+		message = iso8583.NewMessage(testSpec)
+		err = message.Marshal(baseFields{
+			MTI:  field.NewStringValue("0800"),
+			STAN: field.NewStringValue(getSTAN()),
+		})
+		require.NoError(t, err)
+
+		_, err = c.Send(message)
+		require.NoError(t, err)
+
+		// we should receive two replies even if first message was
+		// skipped
+		require.Equal(t, int32(2), messagesReceived.Load())
+	})
+}
+
+// messageIO is a helper struct to read/write iso8583 messages from/to
+// io.Reader/io.Writer
+type messageIO struct {
+	Spec *iso8583.MessageSpec
+}
+
+func (m *messageIO) ReadMessage(r io.Reader) (*iso8583.Message, error) {
+	// read 2 bytes header
+	h := &header{}
+	err := binary.Read(r, binary.BigEndian, h)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read message length: %w", err)
+	}
+
+	// read message
+	rawMessage := make([]byte, h.Length)
+	_, err = io.ReadFull(r, rawMessage)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read message: %w", err)
+	}
+
+	// unpack message
+	message := iso8583.NewMessage(m.Spec)
+	err = message.Unpack(rawMessage)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unpack message: %w", err)
+	}
+
+	return message, nil
+}
+
+func (m *messageIO) WriteMessage(w io.Writer, message *iso8583.Message) error {
+	// pack message
+	rawMessage, err := message.Pack()
+	if err != nil {
+		return fmt.Errorf("failed to pack message: %w", err)
+	}
+
+	// create header with message length
+	h := header{
+		Length: uint16(len(rawMessage)),
+	}
+
+	// write header
+	err = binary.Write(w, binary.BigEndian, h)
+	if err != nil {
+		return fmt.Errorf("failed to write message length: %w", err)
+	}
+
+	// write message
+	_, err = w.Write(rawMessage)
+	if err != nil {
+		return fmt.Errorf("failed to write message: %w", err)
+	}
+
+	return nil
+}
+
+// messageReader is a helper struct to read iso8583 messages from
+// io.Reader with custom message reader that test can control
+type messageReader struct {
+	MessageReader func(r io.Reader) (*iso8583.Message, error)
+}
+
+func (r *messageReader) ReadMessage(reader io.Reader) (*iso8583.Message, error) {
+	return r.MessageReader(reader)
+}
+
+// header is 2 bytes length of the message
+type header struct {
+	Length uint16
+}
+
 func TestConnection(t *testing.T) {
 	t.Run("Status", func(t *testing.T) {
 		c, err := connection.New("1.1.1.1", nil, nil, nil)
@@ -935,23 +1178,23 @@ func TestClient_SetOptions(t *testing.T) {
 	require.NotNil(t, c.Opts.TLSConfig)
 }
 
-func BenchmarkSend100(b *testing.B) { benchmarkSend(100, b) }
+func BenchmarkProcess100Messages(b *testing.B) { benchmarkSend(100, b) }
 
-func BenchmarkSend1000(b *testing.B) { benchmarkSend(1000, b) }
+func BenchmarkProcess1000Messages(b *testing.B) { benchmarkSend(1000, b) }
 
-func BenchmarkSend10000(b *testing.B) { benchmarkSend(10000, b) }
+func BenchmarkProcess10000Messages(b *testing.B) { benchmarkSend(10000, b) }
 
-func BenchmarkSend100000(b *testing.B) { benchmarkSend(100000, b) }
+func BenchmarkProcess100000Messages(b *testing.B) { benchmarkSend(100000, b) }
 
 func benchmarkSend(m int, b *testing.B) {
-	server := server.New(testSpec, readMessageLength, writeMessageLength)
-	// start on random port
-	err := server.Start("127.0.0.1:")
+	server, err := NewTestServer()
 	if err != nil {
-		b.Fatal("starting server: ", err)
+		b.Fatal("starting test server: ", err)
 	}
 
-	c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength)
+	c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength,
+		connection.SendTimeout(500*time.Millisecond),
+	)
 	if err != nil {
 		b.Fatal("creating client: ", err)
 	}
@@ -988,6 +1231,7 @@ func processMessages(b *testing.B, m int, c *connection.Connection) {
 
 			message := iso8583.NewMessage(testSpec)
 			message.MTI("0800")
+			message.Field(11, getSTAN())
 
 			_, err := c.Send(message)
 			if err != nil {

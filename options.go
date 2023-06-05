@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -57,18 +58,42 @@ type Options struct {
 
 	// OnConnect is called synchronously when a connection is established
 	OnConnect func(c *Connection) error
+
+	// OnClose is called synchronously before a connection is closed
+	OnClose func(c *Connection) error
+
+	// RequestIDGenerator is used to generate a unique identifier for a request
+	// so that responses from the server can be matched to the original request.
+	RequestIDGenerator RequestIDGenerator
+
+	// MessageReader is used to read a message from the connection
+	// if set, connection's MessageLengthReader will be ignored
+	MessageReader MessageReader
+
+	// MessageWriter is used to write a message to the connection
+	// if set, connection's MessageLengthWriter will be ignored
+	MessageWriter MessageWriter
+}
+
+type MessageReader interface {
+	ReadMessage(r io.Reader) (*iso8583.Message, error)
+}
+
+type MessageWriter interface {
+	WriteMessage(w io.Writer, message *iso8583.Message) error
 }
 
 type Option func(*Options) error
 
 func GetDefaultOptions() Options {
 	return Options{
-		ConnectTimeout: 10 * time.Second,
-		SendTimeout:    30 * time.Second,
-		IdleTime:       5 * time.Second,
-		ReadTimeout:    60 * time.Second,
-		PingHandler:    nil,
-		TLSConfig:      nil,
+		ConnectTimeout:     10 * time.Second,
+		SendTimeout:        30 * time.Second,
+		IdleTime:           5 * time.Second,
+		ReadTimeout:        60 * time.Second,
+		PingHandler:        nil,
+		TLSConfig:          nil,
+		RequestIDGenerator: &defaultRequestIDGenerator{},
 	}
 }
 
@@ -162,6 +187,13 @@ func OnConnect(h func(c *Connection) error) Option {
 	}
 }
 
+func OnClose(h func(c *Connection) error) Option {
+	return func(opts *Options) error {
+		opts.OnClose = h
+		return nil
+	}
+}
+
 func defaultTLSConfig() *tls.Config {
 	return &tls.Config{
 		MinVersion: tls.VersionTLS12,
@@ -218,6 +250,30 @@ func SetTLSConfig(cfg func(*tls.Config)) Option {
 			o.TLSConfig = defaultTLSConfig()
 		}
 		cfg(o.TLSConfig)
+		return nil
+	}
+}
+
+// RequestIDGenerator sets a RequestIDGenerator option
+func SetRequestIDGenerator(g RequestIDGenerator) Option {
+	return func(o *Options) error {
+		o.RequestIDGenerator = g
+		return nil
+	}
+}
+
+// SetMessageReader sets a MessageReader option
+func SetMessageReader(r MessageReader) Option {
+	return func(o *Options) error {
+		o.MessageReader = r
+		return nil
+	}
+}
+
+// SetMessageWriter sets a MessageWriter option
+func SetMessageWriter(w MessageWriter) Option {
+	return func(o *Options) error {
+		o.MessageWriter = w
 		return nil
 	}
 }

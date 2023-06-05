@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+var ErrNoConnections = errors.New("no connections (online)")
+
 type ConnectionFactoryFunc func(addr string) (*Connection, error)
 
 type Pool struct {
@@ -118,7 +120,7 @@ func (p *Pool) Get() (*Connection, error) {
 	conns := p.filteredConnections()
 
 	if len(conns) == 0 {
-		return nil, errors.New("no (filtered) connections in the pool")
+		return nil, ErrNoConnections
 	}
 
 	n := atomic.AddUint32(&p.connIndex, 1)
