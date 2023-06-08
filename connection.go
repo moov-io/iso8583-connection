@@ -516,11 +516,10 @@ func (c *Connection) writeLoop() {
 
 				var packErr *PackError
 				if errors.As(err, &packErr) {
-					// let caller know that his message was not not sent
-					// because of pack error. We don't set all type of errors to errCh
-					// as this case is handled by handleConnectionError(err)
-					// which sends the same error to all pending requests, including
-					// this one
+					// let caller know that the message was not sent because of pack error.
+					// We don't set all type of errors to errCh as this case is handled
+					// by handleConnectionError(err) which sends the same error to all
+					// pending requests, including this one
 					req.errCh <- err
 
 					err = nil
