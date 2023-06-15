@@ -1,0 +1,3 @@
+testdata/ca.key:private-key:1
+testdata/client.key:private-key:1
+testdata/server.key:private-key:1
