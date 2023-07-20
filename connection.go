@@ -104,6 +104,8 @@ type Connection struct {
 	status Status
 }
 
+var _ io.Writer = (*Connection)(nil)
+
 // New creates and configures Connection. To establish network connection, call `Connect()`.
 func New(addr string, spec *iso8583.MessageSpec, mlReader MessageLengthReader, mlWriter MessageLengthWriter, options ...Option) (*Connection, error) {
 	opts := GetDefaultOptions()
@@ -192,6 +194,15 @@ func (c *Connection) Connect() error {
 	}
 
 	return nil
+}
+
+// Write writes data directly to the connection. Writes are atomic for
+// net.TCPConn and tls.Conn and can be called simultaneously from multiple
+// goroutines. But you should write whole message (including its header, etc.)
+// at once, don't split one message into multiple Write calls.
+// It's the caller's responsibility to handle the error returned from Write.
+func (c *Connection) Write(p []byte) (int, error) {
+	return c.conn.Write(p)
 }
 
 // run starts read and write loops in goroutines
