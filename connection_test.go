@@ -727,7 +727,7 @@ func TestClient_Send(t *testing.T) {
 
 		c.Reply(msg)
 
-		require.Equal(t, closer.Used, true, "client didn't use custom connection")
+		require.Equal(t, closer.Used(), true, "client didn't use custom connection")
 	})
 
 	// if server closed the connection, we want Send method to receive
@@ -1203,10 +1203,13 @@ func TestConnection(t *testing.T) {
 	})
 }
 
-type TrackingRWCloser struct{ Used bool }
+type TrackingRWCloser struct {
+	used atomic.Bool
+}
 
 func (m *TrackingRWCloser) Write(p []byte) (n int, err error) {
-	m.Used = true
+	m.used.Store(true)
+
 	return 0, nil
 }
 func (m *TrackingRWCloser) Read(p []byte) (n int, err error) {
@@ -1214,6 +1217,10 @@ func (m *TrackingRWCloser) Read(p []byte) (n int, err error) {
 }
 func (m *TrackingRWCloser) Close() error {
 	return nil
+}
+
+func (m *TrackingRWCloser) Used() bool {
+	return m.used.Load()
 }
 
 // interface guard
