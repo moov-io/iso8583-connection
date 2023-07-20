@@ -2,6 +2,7 @@ package connection
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -103,6 +104,8 @@ type Connection struct {
 	status Status
 }
 
+var _ io.Writer = (*Connection)(nil)
+
 // New creates and configures Connection. To establish network connection, call `Connect()`.
 func New(addr string, spec *iso8583.MessageSpec, mlReader MessageLengthReader, mlWriter MessageLengthWriter, options ...Option) (*Connection, error) {
 	opts := GetDefaultOptions()
@@ -191,6 +194,15 @@ func (c *Connection) Connect() error {
 	}
 
 	return nil
+}
+
+// Write writes data directly to the connection. Writes are atomic for
+// net.TCPConn and tls.Conn and can be called simultaneously from multiple
+// goroutines. But you should write whole message (including its header, etc.)
+// at once, don't split one message into multiple Write calls.
+// It's the caller's responsibility to handle the error returned from Write.
+func (c *Connection) Write(p []byte) (int, error) {
+	return c.conn.Write(p)
 }
 
 // run starts read and write loops in goroutines
@@ -404,15 +416,25 @@ func (c *Connection) writeMessage(w io.Writer, message *iso8583.Message) error {
 		return utils.NewSafeError(&PackError{err}, "failed to pack message")
 	}
 
+	// create buffer for header and packed message so we can write it to
+	// the connection as a single write
+	buf := &bytes.Buffer{}
+
 	// create header
-	_, err = c.writeMessageLength(w, len(packed))
+	_, err = c.writeMessageLength(buf, len(packed))
 	if err != nil {
 		return fmt.Errorf("writing message header to buffer: %w", err)
 	}
 
-	_, err = w.Write(packed)
+	_, err = buf.Write(packed)
 	if err != nil {
 		return fmt.Errorf("writing packed message to buffer: %w", err)
+	}
+
+	// write buffer to the connection as a single write (atomic)
+	_, err = buf.WriteTo(w)
+	if err != nil {
+		return fmt.Errorf("writing buffer to the connection: %w", err)
 	}
 
 	return nil
