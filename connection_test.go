@@ -178,58 +178,73 @@ func TestClient_Write(t *testing.T) {
 	require.NoError(t, err)
 	defer server.Close()
 
-	var called atomic.Int32
+	t.Run("write into the connection", func(t *testing.T) {
+		var called atomic.Int32
+		inboundMessageHandler := func(c *connection.Connection, message *iso8583.Message) {
+			called.Add(1)
 
-	inboundMessageHandler := func(c *connection.Connection, message *iso8583.Message) {
-		called.Add(1)
+			mti, err := message.GetMTI()
+			require.NoError(t, err)
+			require.Equal(t, "0810", mti)
+		}
 
-		mti, err := message.GetMTI()
+		// we should be able to write any bytes to the server
+		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength, connection.InboundMessageHandler(inboundMessageHandler))
 		require.NoError(t, err)
-		require.Equal(t, "0810", mti)
-	}
+		defer c.Close()
 
-	// we should be able to write any bytes to the server
-	c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength, connection.InboundMessageHandler(inboundMessageHandler))
-	require.NoError(t, err)
-	defer c.Close()
+		err = c.Connect()
+		require.NoError(t, err)
 
-	err = c.Connect()
-	require.NoError(t, err)
+		// let's create data to write to the server, we will prepare header and
+		// packed message
 
-	// let's create data to write to the server, we will prepare header and
-	// packed message
+		// network management message
+		message := iso8583.NewMessage(testSpec)
+		err = message.Marshal(baseFields{
+			MTI:          field.NewStringValue("0800"),
+			TestCaseCode: field.NewStringValue(TestCaseReply),
+			STAN:         field.NewStringValue(getSTAN()),
+		})
+		require.NoError(t, err)
 
-	// network management message
-	message := iso8583.NewMessage(testSpec)
-	err = message.Marshal(baseFields{
-		MTI:          field.NewStringValue("0800"),
-		TestCaseCode: field.NewStringValue(TestCaseReply),
-		STAN:         field.NewStringValue(getSTAN()),
+		packed, err := message.Pack()
+		require.NoError(t, err)
+
+		// prepare header
+		header := &bytes.Buffer{}
+		_, err = writeMessageLength(header, len(packed))
+		require.NoError(t, err)
+
+		// combine header and message
+		data := append(header.Bytes(), packed...)
+
+		// write the data directly to the connection
+		n, err := c.Write(data)
+
+		require.NoError(t, err)
+		require.Equal(t, len(data), n)
+
+		// we should expect to get reply, but as we are not using Send method,
+		// the reply will be handled by InboundMessageHandler
+		require.Eventually(t, func() bool {
+			return called.Load() == 1
+		}, 100*time.Millisecond, 20*time.Millisecond, "inboundMessageHandler should be called")
 	})
-	require.NoError(t, err)
 
-	packed, err := message.Pack()
-	require.NoError(t, err)
+	t.Run("write into the closed connection ", func(t *testing.T) {
+		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength)
+		require.NoError(t, err)
+		defer c.Close()
 
-	// prepare header
-	header := &bytes.Buffer{}
-	_, err = writeMessageLength(header, len(packed))
-	require.NoError(t, err)
+		err = c.Connect()
+		require.NoError(t, err)
 
-	// combine header and message
-	data := append(header.Bytes(), packed...)
+		c.Close()
 
-	// write the data directly to the connection
-	n, err := c.Write(data)
-
-	require.NoError(t, err)
-	require.Equal(t, len(data), n)
-
-	// we should expect to get reply, but as we are not using Send method,
-	// the reply will be handled by InboundMessageHandler
-	require.Eventually(t, func() bool {
-		return called.Load() == 1
-	}, 100*time.Millisecond, 20*time.Millisecond, "inboundMessageHandler should be called")
+		_, err = c.Write([]byte("hello"))
+		require.Error(t, err)
+	})
 }
 
 func TestClient_Send(t *testing.T) {
