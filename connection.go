@@ -176,9 +176,13 @@ func (c *Connection) Connect() error {
 	return nil
 }
 
-// Write writes data directly to the connection. Writes into the connection are
-// atomic, but you should write whole message (including its header, etc.) at
-// once, don't split one message into multiple Write calls.
+// Write writes data directly to the connection. It is crucial to note that the
+// Write operation is atomic in nature, meaning it completes in a single
+// uninterrupted step.
+// When writing data, the entire message—including its header and any other
+// components—should be written in one go. Splitting a single message into
+// multiple Write calls is dangerous, as it could lead to unexpected behavior
+// or errors.
 func (c *Connection) Write(p []byte) (int, error) {
 	dw := directWrite{
 		data:  p,
