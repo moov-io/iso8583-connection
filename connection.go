@@ -40,33 +40,6 @@ const (
 	StatusUnknown Status = ""
 )
 
-// UnpackError returns error with possibility to access RawMessage when
-// connection failed to unpack message
-type UnpackError struct {
-	Err        error
-	RawMessage []byte
-}
-
-func (e *UnpackError) Error() string {
-	return e.Err.Error()
-}
-
-func (e *UnpackError) Unwrap() error {
-	return e.Err
-}
-
-type PackError struct {
-	Err error
-}
-
-func (e *PackError) Error() string {
-	return e.Err.Error()
-}
-
-func (e *PackError) Unwrap() error {
-	return e.Err
-}
-
 // Connection represents an ISO 8583 Connection. Connection may be used
 // by multiple goroutines simultaneously.
 type Connection struct {
@@ -413,7 +386,7 @@ func (c *Connection) writeMessage(w io.Writer, message *iso8583.Message) error {
 	// default message writer
 	packed, err := message.Pack()
 	if err != nil {
-		return utils.NewSafeError(&PackError{err}, "failed to pack message")
+		return fmt.Errorf("packing message: %w", err)
 	}
 
 	// create buffer for header and packed message so we can write it to
@@ -536,7 +509,7 @@ func (c *Connection) writeLoop() {
 			if err != nil {
 				c.handleError(fmt.Errorf("writing message: %w", err))
 
-				var packErr *PackError
+				var packErr *iso8583.PackError
 				if errors.As(err, &packErr) {
 					// let caller know that the message was not sent because of pack error.
 					// We don't set all type of errors to errCh as this case is handled
@@ -587,9 +560,9 @@ func (c *Connection) readLoop() {
 		if err != nil {
 			c.handleError(utils.NewSafeError(err, "failed to read message from connection"))
 
-			// if err is ErrUnpack, we can still continue reading
+			// if err is UnpackError, we can still continue reading
 			// from the connection
-			var unpackErr *UnpackError
+			var unpackErr *iso8583.UnpackError
 			if errors.As(err, &unpackErr) {
 				continue
 			}
@@ -635,11 +608,7 @@ func (c *Connection) readMessage(r io.Reader) (*iso8583.Message, error) {
 	message := iso8583.NewMessage(c.spec)
 	err = message.Unpack(rawMessage)
 	if err != nil {
-		unpackErr := &UnpackError{
-			Err:        err,
-			RawMessage: rawMessage,
-		}
-		return nil, fmt.Errorf("unpacking message: %w", unpackErr)
+		return nil, fmt.Errorf("unpacking message: %w", err)
 	}
 
 	return message, nil
