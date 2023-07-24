@@ -117,6 +117,13 @@ func NewFrom(conn io.ReadWriteCloser, spec *iso8583.MessageSpec, mlReader Messag
 		return nil, fmt.Errorf("creating client: %w", err)
 	}
 	c.conn = conn
+
+	if c.Opts.BeforeConnectHandler != nil {
+		if err := c.Opts.BeforeConnectHandler(c); err != nil {
+			return nil, fmt.Errorf("calling before connect handler: %w", err)
+		}
+	}
+
 	c.run()
 	return c, nil
 }
@@ -136,6 +143,12 @@ func (c *Connection) SetOptions(options ...Option) error {
 func (c *Connection) Connect() error {
 	var conn net.Conn
 	var err error
+
+	if c.Opts.BeforeConnectHandler != nil {
+		if err := c.Opts.BeforeConnectHandler(c); err != nil {
+			return fmt.Errorf("calling before connect handler: %w", err)
+		}
+	}
 
 	if c.conn != nil {
 		c.run()

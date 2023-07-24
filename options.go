@@ -50,6 +50,12 @@ type Options struct {
 	// established with the server
 	ConnectionEstablishedHandler func(c *Connection)
 
+	// BeforeConnectHandler is called before a connection is established and run
+	// loops are started. It provides an opportunity to perform additional
+	// setup tasks on the `Connection` instance or to link it with external
+	// objects.
+	BeforeConnectHandler func(c *Connection) error
+
 	TLSConfig *tls.Config
 
 	// ErrorHandler is called in a goroutine with the errors that can't be
@@ -94,6 +100,13 @@ func GetDefaultOptions() Options {
 		PingHandler:        nil,
 		TLSConfig:          nil,
 		RequestIDGenerator: &defaultRequestIDGenerator{},
+	}
+}
+
+func BeforeConnectHandler(handler func(c *Connection) error) Option {
+	return func(o *Options) error {
+		o.BeforeConnectHandler = handler
+		return nil
 	}
 }
 

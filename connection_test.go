@@ -171,6 +171,21 @@ func TestClient_Connect(t *testing.T) {
 			return atomic.LoadInt32(&onClosedCalled) == 1
 		}, 100*time.Millisecond, 20*time.Millisecond, "onClose should be called")
 	})
+
+	t.Run("when BeforeConnectHandler returns an error", func(t *testing.T) {
+		beforeConnect := func(c *connection.Connection) error {
+			return fmt.Errorf("before connect error")
+		}
+
+		c, err := connection.New("", testSpec, readMessageLength, writeMessageLength,
+			connection.BeforeConnectHandler(beforeConnect),
+		)
+		require.NoError(t, err)
+
+		err = c.Connect()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "before connect error")
+	})
 }
 
 func TestClient_Write(t *testing.T) {
@@ -894,6 +909,32 @@ func TestClient_Send(t *testing.T) {
 		}, 200*time.Millisecond, 50*time.Millisecond, "no ping messages were sent after read timeout")
 	})
 
+	t.Run("BeforeConnectHandler called before connection is established", func(t *testing.T) {
+		var isCalled atomic.Bool
+
+		server, err := NewTestServer()
+		require.NoError(t, err)
+		defer server.Close()
+
+		beforeConnect := func(c *connection.Connection) error {
+			isCalled.Store(true)
+
+			return nil
+		}
+
+		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength,
+			connection.BeforeConnectHandler(beforeConnect),
+		)
+		require.NoError(t, err)
+
+		require.False(t, isCalled.Load())
+
+		err = c.Connect()
+		require.NoError(t, err)
+		defer c.Close()
+
+		require.True(t, isCalled.Load())
+	})
 }
 
 func TestClient_Options(t *testing.T) {
