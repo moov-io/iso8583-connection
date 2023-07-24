@@ -70,13 +70,13 @@ c, err := connection.New("127.0.0.1:9999", brandSpec, readMessageLength, writeMe
 // work with the client
 ```
 
-### Callback invocation during connection life cycle
+### Handler invocation during the connection life cycle
 
 This section explains the various stages at which different handler functions are triggered throughout the lifecycle of the `Connection`.
 
 #### On connection establishment:
 
-- **`OnConnect`**: This handler is invoked immediately after the TCP connection is made. It can be utilized for operations that should be performed before the connection is officially considered established (e.g., sending SignOn message and receiving its response).
+- **`OnConnect`**: This handler is invoked immediately after the TCP connection is made. It can be utilized for operations that should be performed before the connection is officially considered established (e.g., sending `SignOn` message and receiving its response).
 
 - **`ConnectionEstablishedHandler (async)`**: This asynchronous handler is triggered when the connection is logically considered established.
 
