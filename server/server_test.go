@@ -62,7 +62,7 @@ func TestServer_WithConnectionFactory(t *testing.T) {
 }
 
 type lengthHeader struct {
-	Len int
+	Len uint16
 }
 
 func LengthHeaderReader(r io.Reader) (int, error) {
@@ -72,16 +72,16 @@ func LengthHeaderReader(r io.Reader) (int, error) {
 		return 0, fmt.Errorf("failed to read length header: %w", err)
 	}
 
-	return header.Len, nil
+	return int(header.Len), nil
 }
 
 func LengthHeaderWriter(w io.Writer, length int) (int, error) {
-	err := binary.Write(w, binary.BigEndian, &lengthHeader{Len: length})
+	err := binary.Write(w, binary.BigEndian, lengthHeader{Len: uint16(length)})
 	if err != nil {
 		return 0, fmt.Errorf("failed to write length header: %w", err)
 	}
 
-	return binary.Size(&lengthHeader{}), nil
+	return binary.Size(lengthHeader{}), nil
 }
 
 var testSpec *iso8583.MessageSpec = &iso8583.MessageSpec{
