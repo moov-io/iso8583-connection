@@ -70,6 +70,39 @@ c, err := connection.New("127.0.0.1:9999", brandSpec, readMessageLength, writeMe
 // work with the client
 ```
 
+### Handler invocation during the connection life cycle
+
+This section explains the various stages at which different handler functions are triggered throughout the lifecycle of the `Connection`.
+
+#### On connection establishment:
+
+- **`OnConnect`**: This handler is invoked immediately after the TCP connection is made. It can be utilized for operations that should be performed before the connection is officially considered established (e.g., sending `SignOn` message and receiving its response).
+
+- **`ConnectionEstablishedHandler (async)`**: This asynchronous handler is triggered when the connection is logically considered established.
+
+#### On error occurrence:
+
+- **`ErrorHandler (async)`**: This asynchronous handler is executed when an error occurs during message reading or writing.
+
+#### On message receipt:
+
+- **`InboundMessageHandler (async)`**: This asynchronous handler is triggered when an incoming message is received, or a received message does not have a matching request (this can happen when we return an error for the `Send` method after a timeout and then, subsequently, receive a response, aka late response).
+
+#### On read timeout:
+
+- **`ReadTimeoutHandler (async)`**: This asynchronous handler is activated when no messages are received within the set `ReadTimeout` period.
+
+#### On idle time:
+
+- **`PingHandler (async)`**: This asynchronous handler is invoked when no messages are sent within the `IdleTime`.
+
+#### On connection closure:
+
+- **`ConnectionClosedHandlers (async)`**: These asynchronous handlers are invoked when a connection is closed, either by the server or due to a connection error.
+
+- **`OnClose`**: This handler is activated when we manually close the connection.
+
+
 ### (m)TLS connection
 
 Configure to use TLS during connect:
