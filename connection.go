@@ -142,7 +142,12 @@ func (c *Connection) Connect() error {
 		return nil
 	}
 
-	d := &net.Dialer{Timeout: c.Opts.ConnectTimeout}
+	d := &net.Dialer{
+		Timeout: c.Opts.ConnectTimeout,
+		// The dialer KeepAlive option will set both the time the connection is idle
+		// before probes are sent and the interval between the probes.
+		KeepAlive: c.Opts.KeepAlive,
+	}
 
 	if c.Opts.TLSConfig != nil {
 		conn, err = tls.DialWithDialer(d, "tcp", c.addr, c.Opts.TLSConfig)

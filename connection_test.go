@@ -171,6 +171,21 @@ func TestClient_Connect(t *testing.T) {
 			return atomic.LoadInt32(&onClosedCalled) == 1
 		}, 100*time.Millisecond, 20*time.Millisecond, "onClose should be called")
 	})
+
+	t.Run("with keep-alive", func(t *testing.T) {
+		server, err := NewTestServer()
+		require.NoError(t, err)
+		defer server.Close()
+
+		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength,
+			connection.KeepAlive(5*time.Second),
+		)
+		require.NoError(t, err)
+
+		err = c.Connect()
+		require.NoError(t, err)
+		require.NoError(t, c.Close())
+	})
 }
 
 func TestClient_Write(t *testing.T) {

@@ -26,6 +26,10 @@ type Options struct {
 	// ReadTimeoutHandler is called
 	ReadTimeout time.Duration
 
+	// KeepAlive sets the option for keep-alive probes on the underlying connection.
+	// If zero the connection default is used (currently 15s).
+	KeepAlive time.Duration
+
 	// PingHandler is called when no message was sent during idle time
 	// it should be safe for concurrent use
 	PingHandler func(c *Connection)
@@ -91,6 +95,7 @@ func GetDefaultOptions() Options {
 		SendTimeout:        30 * time.Second,
 		IdleTime:           5 * time.Second,
 		ReadTimeout:        60 * time.Second,
+		KeepAlive:          0, // causes the Dialer connection default to be used (currently 15s)
 		PingHandler:        nil,
 		TLSConfig:          nil,
 		RequestIDGenerator: &defaultRequestIDGenerator{},
@@ -125,6 +130,14 @@ func ConnectTimeout(d time.Duration) Option {
 func ReadTimeout(d time.Duration) Option {
 	return func(o *Options) error {
 		o.ReadTimeout = d
+		return nil
+	}
+}
+
+// KeepAlive sets the KeepAlive option
+func KeepAlive(d time.Duration) Option {
+	return func(o *Options) error {
+		o.KeepAlive = d
 		return nil
 	}
 }
