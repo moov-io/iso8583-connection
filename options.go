@@ -30,6 +30,9 @@ type Options struct {
 	// If zero the connection default is used (currently 15s).
 	KeepAlive time.Duration
 
+	// NoDelay sets the option for disabling Nagle's algorithm on the underlying TCP connection.
+	NoDelay bool
+
 	// PingHandler is called when no message was sent during idle time
 	// it should be safe for concurrent use
 	PingHandler func(c *Connection)
@@ -95,7 +98,8 @@ func GetDefaultOptions() Options {
 		SendTimeout:        30 * time.Second,
 		IdleTime:           5 * time.Second,
 		ReadTimeout:        60 * time.Second,
-		KeepAlive:          0, // causes the Dialer connection default to be used (currently 15s)
+		KeepAlive:          0,    // causes the Dialer connection default to be used (currently 15s)
+		NoDelay:            true, // defaulting to true to match Dialer's default behavior
 		PingHandler:        nil,
 		TLSConfig:          nil,
 		RequestIDGenerator: &defaultRequestIDGenerator{},
@@ -138,6 +142,14 @@ func ReadTimeout(d time.Duration) Option {
 func KeepAlive(d time.Duration) Option {
 	return func(o *Options) error {
 		o.KeepAlive = d
+		return nil
+	}
+}
+
+// NoDelay sets the NoDelay option
+func NoDelay(n bool) Option {
+	return func(o *Options) error {
+		o.NoDelay = n
 		return nil
 	}
 }

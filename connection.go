@@ -154,9 +154,15 @@ func (c *Connection) Connect() error {
 	} else {
 		conn, err = d.Dial("tcp", c.addr)
 	}
-
 	if err != nil {
 		return fmt.Errorf("connecting to server %s: %w", c.addr, err)
+	}
+
+	if tcpConn, ok := conn.(*net.TCPConn); ok {
+		err = tcpConn.SetNoDelay(false)
+	}
+	if err != nil {
+		return fmt.Errorf("setting TCP_NODELAY: %w", err)
 	}
 
 	c.conn = conn

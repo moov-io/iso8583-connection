@@ -186,6 +186,21 @@ func TestClient_Connect(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, c.Close())
 	})
+
+	t.Run("with nodelay disabled", func(t *testing.T) {
+		server, err := NewTestServer()
+		require.NoError(t, err)
+		defer server.Close()
+
+		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength,
+			connection.NoDelay(false),
+		)
+		require.NoError(t, err)
+
+		err = c.Connect()
+		require.NoError(t, err)
+		require.NoError(t, c.Close())
+	})
 }
 
 func TestClient_Write(t *testing.T) {
