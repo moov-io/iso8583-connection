@@ -159,10 +159,10 @@ func (c *Connection) Connect() error {
 	}
 
 	if tcpConn, ok := conn.(*net.TCPConn); ok {
-		err = tcpConn.SetNoDelay(false)
-	}
-	if err != nil {
-		return fmt.Errorf("setting TCP_NODELAY: %w", err)
+		err = tcpConn.SetNoDelay(c.Opts.NoDelay)
+		if err != nil {
+			return fmt.Errorf("setting TCP_NODELAY: %w", err)
+		}
 	}
 
 	c.conn = conn
