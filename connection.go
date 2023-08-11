@@ -332,8 +332,26 @@ type response struct {
 	errCh chan error
 }
 
-// Send sends message and waits for the response
-func (c *Connection) Send(message *iso8583.Message) (*iso8583.Message, error) {
+// Send sends message and waits for the response. You can pass optional
+// parameters to the Send method using functional options pattern. Currently,
+// only SendTimeout option is supported. Using it, you can set specific send
+// timeout value for the `Send` method call.
+// Example:
+//
+//	conn.Send(msg, connection.SendTimeout(5 * time.Second))
+func (c *Connection) Send(message *iso8583.Message, options ...Option) (*iso8583.Message, error) {
+	// use send timeout value configured for the connection
+	opts := &Options{
+		SendTimeout: c.Opts.SendTimeout,
+	}
+
+	// apply all options
+	for _, opt := range options {
+		opt(opts)
+	}
+
+	sendTimeout := opts.SendTimeout
+
 	c.mutex.Lock()
 	if c.closing {
 		c.mutex.Unlock()
@@ -362,7 +380,7 @@ func (c *Connection) Send(message *iso8583.Message) (*iso8583.Message, error) {
 
 	c.requestsCh <- req
 
-	sendTimeoutTimer := time.NewTimer(c.Opts.SendTimeout)
+	sendTimeoutTimer := time.NewTimer(sendTimeout)
 	defer sendTimeoutTimer.Stop()
 
 	select {
