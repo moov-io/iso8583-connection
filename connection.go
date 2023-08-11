@@ -340,17 +340,23 @@ type response struct {
 //
 //	conn.Send(msg, connection.SendTimeout(5 * time.Second))
 func (c *Connection) Send(message *iso8583.Message, options ...Option) (*iso8583.Message, error) {
-	// use send timeout value configured for the connection
-	opts := &Options{
-		SendTimeout: c.Opts.SendTimeout,
-	}
+	// use the SendTimeout from the connection options
+	sendTimeout := c.Opts.SendTimeout
 
-	// apply all options
-	for _, opt := range options {
-		opt(opts)
-	}
+	// Only if there are any options passed, apply them
+	if len(options) > 0 {
+		// use send timeout value configured for the connection
+		opts := &Options{
+			SendTimeout: sendTimeout,
+		}
 
-	sendTimeout := opts.SendTimeout
+		// apply all options
+		for _, opt := range options {
+			opt(opts)
+		}
+
+		sendTimeout = opts.SendTimeout
+	}
 
 	c.mutex.Lock()
 	if c.closing {
