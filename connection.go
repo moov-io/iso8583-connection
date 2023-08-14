@@ -112,12 +112,11 @@ func New(addr string, spec *iso8583.MessageSpec, mlReader MessageLengthReader, m
 // used as a transport for the returned Connection. Returned Connection is
 // ready to be used for message sending and receiving
 func NewFrom(conn io.ReadWriteCloser, spec *iso8583.MessageSpec, mlReader MessageLengthReader, mlWriter MessageLengthWriter, options ...Option) (*Connection, error) {
+	options = append(options, WithConnection(conn))
 	c, err := New("", spec, mlReader, mlWriter, options...)
 	if err != nil {
 		return nil, fmt.Errorf("creating client: %w", err)
 	}
-	c.conn = conn
-	c.run()
 	return c, nil
 }
 
@@ -133,21 +132,23 @@ func (c *Connection) SetOptions(options ...Option) error {
 }
 
 // Connect establishes the connection to the server using configured Addr
+// and starts the goroutines to send requests and receive responses.
 func (c *Connection) Connect() error {
-	var conn net.Conn
+	var conn io.ReadWriteCloser
 	var err error
 
-	if c.conn != nil {
-		c.run()
-		return nil
-	}
+	// if connection is already set, use it
+	conn = c.Opts.Conn
 
-	d := &net.Dialer{Timeout: c.Opts.ConnectTimeout}
+	// if connection is not set, create new one
+	if conn == nil {
+		d := &net.Dialer{Timeout: c.Opts.ConnectTimeout}
 
-	if c.Opts.TLSConfig != nil {
-		conn, err = tls.DialWithDialer(d, "tcp", c.addr, c.Opts.TLSConfig)
-	} else {
-		conn, err = d.Dial("tcp", c.addr)
+		if c.Opts.TLSConfig != nil {
+			conn, err = tls.DialWithDialer(d, "tcp", c.addr, c.Opts.TLSConfig)
+		} else {
+			conn, err = d.Dial("tcp", c.addr)
+		}
 	}
 
 	if err != nil {

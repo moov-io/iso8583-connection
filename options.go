@@ -73,6 +73,9 @@ type Options struct {
 	// MessageWriter is used to write a message to the connection
 	// if set, connection's MessageLengthWriter will be ignored
 	MessageWriter MessageWriter
+
+	// Conn is used to set a custom connection
+	Conn io.ReadWriteCloser
 }
 
 type MessageReader interface {
@@ -274,6 +277,13 @@ func SetMessageReader(r MessageReader) Option {
 func SetMessageWriter(w MessageWriter) Option {
 	return func(o *Options) error {
 		o.MessageWriter = w
+		return nil
+	}
+}
+
+func WithConnection(conn io.ReadWriteCloser) Option {
+	return func(o *Options) error {
+		o.Conn = conn
 		return nil
 	}
 }

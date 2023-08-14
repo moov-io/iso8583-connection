@@ -192,6 +192,7 @@ func (s *Server) handleConnection(conn net.Conn) error {
 	if err != nil {
 		return fmt.Errorf("creating connection using factory: %w", err)
 	}
+	c.Connect()
 
 	select {
 	case <-s.closeCh:

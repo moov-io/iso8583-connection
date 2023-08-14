@@ -767,7 +767,29 @@ func TestClient_Send(t *testing.T) {
 	t.Run("should allow setting a custom connection without overwriting it in connect", func(t *testing.T) {
 		closer := &TrackingRWCloser{}
 
-		c, err := connection.NewFrom(closer, testSpec, readMessageLength, writeMessageLength, connection.SendTimeout(100*time.Millisecond))
+		c, err := connection.NewFrom(closer, testSpec, readMessageLength, writeMessageLength,
+			connection.SendTimeout(100*time.Millisecond),
+		)
+		require.NoError(t, err)
+
+		err = c.Connect()
+		require.NoError(t, err)
+		defer c.Close()
+
+		msg := iso8583.NewMessage(testSpec)
+
+		c.Reply(msg)
+
+		require.Equal(t, closer.Used(), true, "client didn't use custom connection")
+	})
+
+	t.Run("should allow setting a custom connection passed in options without overwriting it in connect", func(t *testing.T) {
+		closer := &TrackingRWCloser{}
+
+		c, err := connection.New("", testSpec, readMessageLength, writeMessageLength,
+			connection.SendTimeout(100*time.Millisecond),
+			connection.WithConnection(closer),
+		)
 		require.NoError(t, err)
 
 		err = c.Connect()
