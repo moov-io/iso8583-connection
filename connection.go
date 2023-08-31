@@ -138,7 +138,6 @@ func (c *Connection) Connect() error {
 	var err error
 
 	if c.conn != nil {
-		c.run()
 		return nil
 	}
 
