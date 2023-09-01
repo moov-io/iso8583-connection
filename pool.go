@@ -97,7 +97,8 @@ func (p *Pool) Connect() error {
 
 		err = conn.Connect()
 		if err != nil {
-			p.handleError(fmt.Errorf("connecting to %s: %w", conn.addr, err))
+			errs = append(errs, fmt.Errorf("connecting to %s: %w", addr, err))
+			p.handleError(fmt.Errorf("failed to connect to %s: %w", conn.addr, err))
 			p.wg.Add(1)
 			go p.recreateConnection(conn)
 			continue
@@ -106,12 +107,16 @@ func (p *Pool) Connect() error {
 		p.connections = append(p.connections, conn)
 	}
 
-	if len(p.connections) < p.Opts.MinConnections {
-		connectErr = fmt.Errorf("minimum %d connections is required, established: %d, errors: %w", p.Opts.MinConnections, len(p.connections), errors.Join(errs...))
-		return connectErr
+	if len(p.connections) >= p.Opts.MinConnections {
+		return nil
 	}
 
-	return nil
+	if len(errs) == 0 {
+		connectErr = fmt.Errorf("minimum %d connections is required, established: %d", p.Opts.MinConnections, len(p.connections))
+	} else {
+		connectErr = fmt.Errorf("minimum %d connections is required, established: %d, errors: %w", p.Opts.MinConnections, len(p.connections), errors.Join(errs...))
+	}
+	return connectErr
 }
 
 // Connections returns copy of all connections from the pool
