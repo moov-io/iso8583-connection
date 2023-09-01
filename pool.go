@@ -62,6 +62,20 @@ func (p *Pool) handleError(err error) {
 
 // Connect creates poll of connections by calling Factory method and connect them all
 func (p *Pool) Connect() error {
+	// We need to close pool (with all potentially running goroutines) if
+	// connection creation fails. Example of such situation is when we
+	// successfully created 2 connections, but 3rd failed and minimum
+	// connections is 3.
+	// Because `Close` uses same mutex as `Connect` we need to unlock it
+	// before calling `Close`.  That's why we use `connectErr` variable and
+	// `defer` statement here, before the next `defer` which unlocks mutex.
+	var connectErr error
+	defer func() {
+		if connectErr != nil {
+			p.Close()
+		}
+	}()
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.isClosed {
@@ -93,7 +107,8 @@ func (p *Pool) Connect() error {
 	}
 
 	if len(p.connections) < p.Opts.MinConnections {
-		return fmt.Errorf("minimum %d connections is required, established: %d, errors: %w", p.Opts.MinConnections, len(p.connections), errors.Join(errs...))
+		connectErr = fmt.Errorf("minimum %d connections is required, established: %d, errors: %w", p.Opts.MinConnections, len(p.connections), errors.Join(errs...))
+		return connectErr
 	}
 
 	return nil
