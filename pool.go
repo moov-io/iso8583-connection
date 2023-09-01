@@ -171,30 +171,31 @@ func (p *Pool) recreateConnection(closedConn *Connection) {
 	var conn *Connection
 	var err error
 	for {
+		select {
+		case <-time.After(p.Opts.ReconnectWait):
+			// Wait before recreating connection
+		case <-p.Done():
+			// If pool is closed, let's get out of here
+			return
+		}
 
+		// Recreate connection
 		conn, err = p.Factory(closedConn.addr)
 		if err != nil {
 			p.handleError(fmt.Errorf("failed to re-create connection for %s: %w", closedConn.addr, err))
 			return
 		}
 
-		// set own handler when connection is closed
+		// When connection is closed, remove it from the pool of connections and start
+		// recreate goroutine to create new connection for the same address
 		conn.SetOptions(ConnectionClosedHandler(p.handleClosedConnection))
 
 		err = conn.Connect()
-
 		if err == nil {
 			break
 		}
 
 		p.handleError(fmt.Errorf("failed to reconnect to %s: %w", conn.addr, err))
-		select {
-		case <-time.After(p.Opts.ReconnectWait):
-			continue
-		case <-p.Done():
-			// if pool is closed, let's get out of here
-			return
-		}
 	}
 
 	p.mu.Lock()
