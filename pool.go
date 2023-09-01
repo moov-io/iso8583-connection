@@ -168,19 +168,23 @@ func (p *Pool) handleClosedConnection(closedConn *Connection) {
 func (p *Pool) recreateConnection(closedConn *Connection) {
 	defer p.wg.Done()
 
-	var conn *Connection
-	var err error
+	reconnectTime := p.Opts.ReconnectWait
+
 	for {
 		select {
-		case <-time.After(p.Opts.ReconnectWait):
-			// Wait before recreating connection
+		case <-time.After(reconnectTime):
+			if p.Opts.MaxReconnectWait != 0 {
+				reconnectTime *= 2
+				if reconnectTime > p.Opts.MaxReconnectWait {
+					reconnectTime = p.Opts.MaxReconnectWait
+				}
+			}
 		case <-p.Done():
-			// If pool is closed, let's get out of here
+			// if pool is closed, let's get out of here
 			return
 		}
 
-		// Recreate connection
-		conn, err = p.Factory(closedConn.addr)
+		conn, err := p.Factory(closedConn.addr)
 		if err != nil {
 			p.handleError(fmt.Errorf("failed to re-create connection for %s: %w", closedConn.addr, err))
 			return
@@ -190,17 +194,17 @@ func (p *Pool) recreateConnection(closedConn *Connection) {
 		// recreate goroutine to create new connection for the same address
 		conn.SetOptions(ConnectionClosedHandler(p.handleClosedConnection))
 
-		err = conn.Connect()
-		if err == nil {
-			break
+		// if we successfully reconnected, add connection to the pool and return
+		if err = conn.Connect(); err == nil {
+			p.mu.Lock()
+			p.connections = append(p.connections, conn)
+			p.mu.Unlock()
+
+			return
 		}
 
 		p.handleError(fmt.Errorf("failed to reconnect to %s: %w", conn.addr, err))
 	}
-
-	p.mu.Lock()
-	p.connections = append(p.connections, conn)
-	p.mu.Unlock()
 }
 
 // Close closes all connections in the pool

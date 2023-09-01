@@ -13,17 +13,21 @@ import (
 
 type Options struct {
 	// ConnectTimeout sets the timeout for establishing new connections.
+	// The default is 10 seconds.
 	ConnectTimeout time.Duration
 
-	// SendTimeout sets the timeout for a Send operation
+	// SendTimeout sets the timeout for a Send operation.
+	// The default is 30 seconds.
 	SendTimeout time.Duration
 
 	// IdleTime is the period at which the client will be sending ping
-	// message to the server
+	// message to the server.
+	// The default is 5 seconds.
 	IdleTime time.Duration
 
 	// ReadTimeout is the maximum time between read events before the
-	// ReadTimeoutHandler is called
+	// ReadTimeoutHandler is called.
+	// The default is 60 seconds.
 	ReadTimeout time.Duration
 
 	// PingHandler is called when no message was sent during idle time
