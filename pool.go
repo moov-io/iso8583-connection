@@ -53,16 +53,37 @@ func (p *Pool) handleError(err error) {
 		return
 	}
 
-	go p.Opts.ErrorHandler(err)
+	p.wg.Add(1)
+	go func() {
+		defer p.wg.Done()
+		p.Opts.ErrorHandler(err)
+	}()
 }
 
 // Connect creates poll of connections by calling Factory method and connect them all
 func (p *Pool) Connect() error {
+	// We need to close pool (with all potentially running goroutines) if
+	// connection creation fails. Example of such situation is when we
+	// successfully created 2 connections, but 3rd failed and minimum
+	// connections is 3.
+	// Because `Close` uses same mutex as `Connect` we need to unlock it
+	// before calling `Close`.  That's why we use `connectErr` variable and
+	// `defer` statement here, before the next `defer` which unlocks mutex.
+	var connectErr error
+	defer func() {
+		if connectErr != nil {
+			p.Close()
+		}
+	}()
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.isClosed {
 		return errors.New("pool is closed")
 	}
+
+	// errors from initial connections creation
+	var errs []error
 
 	// build connections
 	for _, addr := range p.Addrs {
@@ -76,7 +97,8 @@ func (p *Pool) Connect() error {
 
 		err = conn.Connect()
 		if err != nil {
-			p.handleError(fmt.Errorf("connecting to %s: %w", conn.addr, err))
+			errs = append(errs, fmt.Errorf("connecting to %s: %w", addr, err))
+			p.handleError(fmt.Errorf("failed to connect to %s: %w", conn.addr, err))
 			p.wg.Add(1)
 			go p.recreateConnection(conn)
 			continue
@@ -85,11 +107,16 @@ func (p *Pool) Connect() error {
 		p.connections = append(p.connections, conn)
 	}
 
-	if len(p.connections) < p.Opts.MinConnections {
-		return fmt.Errorf("minimum %d connections is required, established: %d", p.Opts.MinConnections, len(p.connections))
+	if len(p.connections) >= p.Opts.MinConnections {
+		return nil
 	}
 
-	return nil
+	if len(errs) == 0 {
+		connectErr = fmt.Errorf("minimum %d connections is required, established: %d", p.Opts.MinConnections, len(p.connections))
+	} else {
+		connectErr = fmt.Errorf("minimum %d connections is required, established: %d, errors: %w", p.Opts.MinConnections, len(p.connections), errors.Join(errs...))
+	}
+	return connectErr
 }
 
 // Connections returns copy of all connections from the pool
