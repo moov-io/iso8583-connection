@@ -7,10 +7,12 @@ import (
 type PoolOption func(*PoolOptions) error
 
 type PoolOptions struct {
-	// BaseReconnectWait sets the time to wait after first re-connect attempt
-	BaseReconnectWait time.Duration
+	// ReconnectWait sets the time to wait after first re-connect attempt
+	ReconnectWait time.Duration
 
 	// MaxReconnectWait is the maximum wait time for re-connect attempt
+	// if it is set to non-zero value, it will be used as the upper bound
+	// for exponential backoff
 	MaxReconnectWait time.Duration
 
 	// ErrorHandler is called in a goroutine with the errors that can't be
@@ -28,15 +30,15 @@ type PoolOptions struct {
 
 func GetDefaultPoolOptions() PoolOptions {
 	return PoolOptions{
-		BaseReconnectWait: 5 * time.Second,
-		MaxReconnectWait:  1 * time.Minute,
-		MinConnections:    1,
+		ReconnectWait:    5 * time.Second,
+		MaxReconnectWait: 0,
+		MinConnections:   1,
 	}
 }
 
 func PoolReconnectWait(rw time.Duration) PoolOption {
 	return func(opts *PoolOptions) error {
-		opts.BaseReconnectWait = rw
+		opts.ReconnectWait = rw
 		return nil
 	}
 }
