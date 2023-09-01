@@ -53,7 +53,11 @@ func (p *Pool) handleError(err error) {
 		return
 	}
 
-	go p.Opts.ErrorHandler(err)
+	p.wg.Add(1)
+	go func() {
+		defer p.wg.Done()
+		p.Opts.ErrorHandler(err)
+	}()
 }
 
 // Connect creates poll of connections by calling Factory method and connect them all
@@ -63,6 +67,9 @@ func (p *Pool) Connect() error {
 	if p.isClosed {
 		return errors.New("pool is closed")
 	}
+
+	// errors from initial connections creation
+	var errs []error
 
 	// build connections
 	for _, addr := range p.Addrs {
@@ -86,7 +93,7 @@ func (p *Pool) Connect() error {
 	}
 
 	if len(p.connections) < p.Opts.MinConnections {
-		return fmt.Errorf("minimum %d connections is required, established: %d", p.Opts.MinConnections, len(p.connections))
+		return fmt.Errorf("minimum %d connections is required, established: %d, errors: %w", p.Opts.MinConnections, len(p.connections), errors.Join(errs...))
 	}
 
 	return nil

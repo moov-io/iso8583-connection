@@ -175,7 +175,7 @@ func TestPool(t *testing.T) {
 		err = pool.Connect()
 		defer pool.Close()
 
-		require.EqualError(t, err, "minimum 3 connections is required, established: 2")
+		require.Contains(t, err.Error(), "minimum 3 connections is required, established: 2")
 	})
 
 	t.Run("Connect() returns no error when established >= MinConnections and later re-establish failed connections", func(t *testing.T) {

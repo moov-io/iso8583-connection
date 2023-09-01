@@ -11,7 +11,8 @@ type PoolOptions struct {
 	ReconnectWait time.Duration
 
 	// ErrorHandler is called in a goroutine with the errors that can't be
-	// returned to the caller
+	// returned to the caller. Don't block in this function as it will
+	// block the connection pool Close() method.
 	ErrorHandler func(err error)
 
 	// MinConnections is the number of connections required to be established when
