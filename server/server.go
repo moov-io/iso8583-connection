@@ -9,7 +9,38 @@ import (
 	connection "github.com/moov-io/iso8583-connection"
 )
 
+// ConnectHandler is a function that will be called when new connection is
+// established. Note, that this function will be called in a separate goroutine
+// and the conn type is net.Conn, not *connection.Connection
 type ConnectHandler func(conn net.Conn)
+
+// ServerConnectionFactoryFunc is a function that creates new connection from
+// net.Conn. This function is used to create new connection with custom options
+// (e.g. custom message length reader/writer)
+type ServerConnectionFactoryFunc func(conn net.Conn) (*connection.Connection, error)
+
+var defaultServerConnectionFactory = func(spec *iso8583.MessageSpec, mlReader connection.MessageLengthReader, mlWriter connection.MessageLengthWriter, options ...connection.Option) (ServerConnectionFactoryFunc, error) {
+	if spec == nil {
+		return nil, fmt.Errorf("spec is required")
+	}
+
+	if mlReader == nil {
+		return nil, fmt.Errorf("message length reader is required")
+	}
+
+	if mlWriter == nil {
+		return nil, fmt.Errorf("message length writer is required")
+	}
+
+	return func(conn net.Conn) (*connection.Connection, error) {
+		c, err := connection.NewFrom(conn, spec, mlReader, mlWriter, options...)
+		if err != nil {
+			return nil, fmt.Errorf("creating connection: %w", err)
+		}
+
+		return c, nil
+	}, nil
+}
 
 // Server is a simple iso8583 server implementation currently used to test
 // iso8583-client and most probably to be used for iso8583-test-harness
@@ -35,6 +66,9 @@ type Server struct {
 	mu              sync.Mutex
 	ConnectHandlers []ConnectHandler
 	isClosed        bool
+
+	// connectionFactory is a function that creates new connection
+	connectionFactory ServerConnectionFactoryFunc
 }
 
 func New(spec *iso8583.MessageSpec, mlReader connection.MessageLengthReader, mlWriter connection.MessageLengthWriter, connectionOpts ...connection.Option) *Server {
@@ -48,6 +82,16 @@ func New(spec *iso8583.MessageSpec, mlReader connection.MessageLengthReader, mlW
 	}
 }
 
+func (s *Server) SetOptions(opts ...func(*Server) error) error {
+	for _, opt := range opts {
+		if err := opt(s); err != nil {
+			return fmt.Errorf("setting server options: %w", err)
+		}
+	}
+
+	return nil
+}
+
 func (s *Server) AddConnectionHandler(h ConnectHandler) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -55,6 +99,16 @@ func (s *Server) AddConnectionHandler(h ConnectHandler) {
 }
 
 func (s *Server) Start(addr string) error {
+	// create connection factory
+	if s.connectionFactory == nil {
+		connFactory, err := defaultServerConnectionFactory(s.spec, s.readMessageLength, s.writeMessageLength, s.connectionOpts...)
+		if err != nil {
+			return fmt.Errorf("creating default server connection factory: %w", err)
+		}
+
+		s.connectionFactory = connFactory
+	}
+
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
@@ -134,9 +188,9 @@ func (s *Server) Close() {
 }
 
 func (s *Server) handleConnection(conn net.Conn) error {
-	c, err := connection.NewFrom(conn, s.spec, s.readMessageLength, s.writeMessageLength, s.connectionOpts...)
+	c, err := s.connectionFactory(conn)
 	if err != nil {
-		return fmt.Errorf("creating connection: %w", err)
+		return fmt.Errorf("creating connection using factory: %w", err)
 	}
 
 	select {

@@ -39,31 +39,10 @@ const (
 	StatusUnknown Status = ""
 )
 
-// UnpackError returns error with possibility to access RawMessage when
-// connection failed to unpack message
-type UnpackError struct {
-	Err        error
-	RawMessage []byte
-}
-
-func (e *UnpackError) Error() string {
-	return e.Err.Error()
-}
-
-func (e *UnpackError) Unwrap() error {
-	return e.Err
-}
-
-type PackError struct {
-	Err error
-}
-
-func (e *PackError) Error() string {
-	return e.Err.Error()
-}
-
-func (e *PackError) Unwrap() error {
-	return e.Err
+// directWrite is used to write data directly to the connection
+type directWrite struct {
+	data  []byte
+	errCh chan error
 }
 
 // Connection represents an ISO 8583 Connection. Connection may be used
@@ -74,6 +53,7 @@ type Connection struct {
 	conn           io.ReadWriteCloser
 	requestsCh     chan request
 	readResponseCh chan *iso8583.Message
+	directWriteCh  chan directWrite
 	done           chan struct{}
 
 	// spec that will be used to unpack received messages
@@ -103,6 +83,8 @@ type Connection struct {
 	status Status
 }
 
+var _ io.Writer = (*Connection)(nil)
+
 // New creates and configures Connection. To establish network connection, call `Connect()`.
 func New(addr string, spec *iso8583.MessageSpec, mlReader MessageLengthReader, mlWriter MessageLengthWriter, options ...Option) (*Connection, error) {
 	opts := GetDefaultOptions()
@@ -117,6 +99,7 @@ func New(addr string, spec *iso8583.MessageSpec, mlReader MessageLengthReader, m
 		Opts:               opts,
 		requestsCh:         make(chan request),
 		readResponseCh:     make(chan *iso8583.Message),
+		directWriteCh:      make(chan directWrite),
 		done:               make(chan struct{}),
 		respMap:            make(map[string]response),
 		spec:               spec,
@@ -155,7 +138,6 @@ func (c *Connection) Connect() error {
 	var err error
 
 	if c.conn != nil {
-		c.run()
 		return nil
 	}
 
@@ -191,6 +173,27 @@ func (c *Connection) Connect() error {
 	}
 
 	return nil
+}
+
+// Write writes data directly to the connection. It is crucial to note that the
+// Write operation is atomic in nature, meaning it completes in a single
+// uninterrupted step.
+// When writing data, the entire message—including its header and any other
+// components—should be written in one go. Splitting a single message into
+// multiple Write calls is dangerous, as it could lead to unexpected behavior
+// or errors.
+func (c *Connection) Write(p []byte) (int, error) {
+	dw := directWrite{
+		data:  p,
+		errCh: make(chan error, 1),
+	}
+
+	select {
+	case c.directWriteCh <- dw:
+		return len(p), <-dw.errCh
+	case <-c.done:
+		return 0, ErrConnectionClosed
+	}
 }
 
 // run starts read and write loops in goroutines
@@ -328,8 +331,32 @@ type response struct {
 	errCh chan error
 }
 
-// Send sends message and waits for the response
-func (c *Connection) Send(message *iso8583.Message) (*iso8583.Message, error) {
+// Send sends message and waits for the response. You can pass optional
+// parameters to the Send method using functional options pattern. Currently,
+// only SendTimeout option is supported. Using it, you can set specific send
+// timeout value for the `Send` method call.
+// Example:
+//
+//	conn.Send(msg, connection.SendTimeout(5 * time.Second))
+func (c *Connection) Send(message *iso8583.Message, options ...Option) (*iso8583.Message, error) {
+	// use the SendTimeout from the connection options
+	sendTimeout := c.Opts.SendTimeout
+
+	// Only if there are any options passed, apply them
+	if len(options) > 0 {
+		// use send timeout value configured for the connection
+		opts := &Options{
+			SendTimeout: sendTimeout,
+		}
+
+		// apply all options
+		for _, opt := range options {
+			opt(opts)
+		}
+
+		sendTimeout = opts.SendTimeout
+	}
+
 	c.mutex.Lock()
 	if c.closing {
 		c.mutex.Unlock()
@@ -358,7 +385,7 @@ func (c *Connection) Send(message *iso8583.Message) (*iso8583.Message, error) {
 
 	c.requestsCh <- req
 
-	sendTimeoutTimer := time.NewTimer(c.Opts.SendTimeout)
+	sendTimeoutTimer := time.NewTimer(sendTimeout)
 	defer sendTimeoutTimer.Stop()
 
 	select {
@@ -367,23 +394,18 @@ func (c *Connection) Send(message *iso8583.Message) (*iso8583.Message, error) {
 	case <-sendTimeoutTimer.C:
 		err = ErrSendTimeout
 		// reply can still be sent after SendTimeout received.
-		// if we have UnmatchedMessageHandler set, then we want reply
-		// to not be lost but handled by it.
-		if c.Opts.InboundMessageHandler != nil {
-			go func() {
-				oneMoreSecondTimer := time.NewTimer(time.Second)
-				defer oneMoreSecondTimer.Stop()
-
-				select {
-				case resp := <-req.replyCh:
+		// if we have InboundMessageHandler set, then we want reply
+		// to be handled by it.
+		defer func() {
+			select {
+			case resp := <-req.replyCh:
+				if c.Opts.InboundMessageHandler != nil {
 					go c.Opts.InboundMessageHandler(c, resp)
-				case <-oneMoreSecondTimer.C:
-					// if no reply received within 1 second
-					// we return from the goroutine
-					return
 				}
-			}()
-		}
+			default:
+				return
+			}
+		}()
 	}
 
 	c.pendingRequestsMu.Lock()
@@ -395,24 +417,30 @@ func (c *Connection) Send(message *iso8583.Message) (*iso8583.Message, error) {
 
 func (c *Connection) writeMessage(w io.Writer, message *iso8583.Message) error {
 	if c.Opts.MessageWriter != nil {
-		return c.Opts.MessageWriter.WriteMessage(w, message)
+		err := c.Opts.MessageWriter.WriteMessage(c.conn, message)
+		if err != nil {
+			return fmt.Errorf("writing message: %w", err)
+		}
+
+		return nil
 	}
 
-	// default message writer
+	// if no custom message writer is set, use default one
+
 	packed, err := message.Pack()
 	if err != nil {
-		return utils.NewSafeError(&PackError{err}, "failed to pack message")
+		return fmt.Errorf("packing message: %w", err)
 	}
 
 	// create header
-	_, err = c.writeMessageLength(w, len(packed))
+	_, err = c.writeMessageLength(c.conn, len(packed))
 	if err != nil {
-		return fmt.Errorf("writing message header to buffer: %w", err)
+		return fmt.Errorf("writing message length: %w", err)
 	}
 
-	_, err = w.Write(packed)
+	_, err = c.conn.Write(packed)
 	if err != nil {
-		return fmt.Errorf("writing packed message to buffer: %w", err)
+		return fmt.Errorf("writing packed message: %w", err)
 	}
 
 	return nil
@@ -514,13 +542,12 @@ func (c *Connection) writeLoop() {
 			if err != nil {
 				c.handleError(fmt.Errorf("writing message: %w", err))
 
-				var packErr *PackError
+				var packErr *iso8583.PackError
 				if errors.As(err, &packErr) {
-					// let caller know that his message was not not sent
-					// because of pack error. We don't set all type of errors to errCh
-					// as this case is handled by handleConnectionError(err)
-					// which sends the same error to all pending requests, including
-					// this one
+					// let caller know that the message was not sent because of pack error.
+					// We don't set all type of errors to errCh as this case is handled
+					// by handleConnectionError(err) which sends the same error to all
+					// pending requests, including this one
 					req.errCh <- err
 
 					err = nil
@@ -539,6 +566,19 @@ func (c *Connection) writeLoop() {
 			if req.replyCh == nil {
 				req.errCh <- nil
 			}
+
+		case dw := <-c.directWriteCh:
+			_, err = c.conn.Write(dw.data)
+			if err != nil {
+				c.handleError(fmt.Errorf("writing data: %w", err))
+				dw.errCh <- err
+
+				// we can't continue to write other messages or data when we failed to write
+				// one of them
+				break
+			}
+			dw.errCh <- nil
+
 		case <-idleTimeTimer.C:
 			// if no message was sent during idle time, we have to send ping message
 			if c.Opts.PingHandler != nil {
@@ -566,9 +606,9 @@ func (c *Connection) readLoop() {
 		if err != nil {
 			c.handleError(utils.NewSafeError(err, "failed to read message from connection"))
 
-			// if err is ErrUnpack, we can still continue reading
+			// if err is UnpackError, we can still continue reading
 			// from the connection
-			var unpackErr *UnpackError
+			var unpackErr *iso8583.UnpackError
 			if errors.As(err, &unpackErr) {
 				continue
 			}
@@ -614,11 +654,7 @@ func (c *Connection) readMessage(r io.Reader) (*iso8583.Message, error) {
 	message := iso8583.NewMessage(c.spec)
 	err = message.Unpack(rawMessage)
 	if err != nil {
-		unpackErr := &UnpackError{
-			Err:        err,
-			RawMessage: rawMessage,
-		}
-		return nil, fmt.Errorf("unpacking message: %w", unpackErr)
+		return nil, fmt.Errorf("unpacking message: %w", err)
 	}
 
 	return message, nil
