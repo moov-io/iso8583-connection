@@ -8,12 +8,15 @@ type PoolOption func(*PoolOptions) error
 
 type PoolOptions struct {
 	// ReconnectWait sets the time to wait after first re-connect attempt
+	// The default is 5 seconds
 	ReconnectWait time.Duration
 
 	// MaxReconnectWait specifies the maximum duration to wait between
 	// reconnection attempts, serving as the upper bound for exponential
-	// backoff; if set to zero, there's no exponential backoff and
-	// ReconnectWait is used for each retry.
+	// backoff.
+	// A zero value means no exponential backoff and ReconnectWait is used
+	// for each retry.
+	// The default is 0.
 	MaxReconnectWait time.Duration
 
 	// ErrorHandler is called in a goroutine with the errors that can't be
@@ -21,10 +24,13 @@ type PoolOptions struct {
 	ErrorHandler func(err error)
 
 	// MinConnections is the number of connections required to be established when
-	// we connect the pool
+	// we connect the pool.
+	// A zero value means that Pool will not return error on `Connect` and will
+	// try to connect to all the addresses in the pool.
+	// The default is 1.
 	MinConnections int
 
-	// ConntionsFilter is a function to filter connections in the pool
+	// ConnectionsFilter is a function to filter connections in the pool
 	// when Get() is called
 	ConnectionsFilter func(*Connection) bool
 }
