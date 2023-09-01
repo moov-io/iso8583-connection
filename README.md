@@ -264,6 +264,7 @@ by the server. It does it using `ConnectionClosedHandler`.
 Following options are supported:
 
 * `ReconnectWait` sets the time to wait after first re-connect attempt
+* `MaxReconnectWait` specifies the maximum duration to wait between reconnection attempts, serving as the upper bound for exponential backoff; if set to zero, there's no exponential backoff and ReconnectWait is used for each retry.
 * `ErrorHandler` is called in a goroutine with the errors that can't be returned to the caller (from other goroutines)
 * `MinConnections` is the number of connections required to be established when we connect the pool
 * `ConnectionsFilter` is a function to filter connections in the pool for `Get`, `IsDegraded` or `IsUp` methods

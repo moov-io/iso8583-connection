@@ -73,7 +73,11 @@ func TestPool(t *testing.T) {
 	// And the pool of connections
 	// one of our tests
 	reconnectWait := 500 * time.Millisecond
-	pool, err := connection.NewPool(factory, addrs, connection.PoolReconnectWait(reconnectWait))
+	pool, err := connection.NewPool(
+		factory,
+		addrs,
+		connection.PoolReconnectWait(reconnectWait),
+	)
 	require.NoError(t, err)
 	defer pool.Close()
 
@@ -144,6 +148,59 @@ func TestPool(t *testing.T) {
 		require.Eventually(t, func() bool {
 			return len(pool.Connections()) == connectionsCntBeforeServerShutdown
 		}, 2000*time.Millisecond, 50*time.Millisecond, "expect to have one less connection")
+	})
+
+	t.Run("when MaxReconnectWait is set reconnect wait time will exponentially increase", func(t *testing.T) {
+		// Context: MaxReconnectWait is set to 400ms and initial
+		// ReconnectWait is 100ms. The server is offline, so the pool
+		// will try to reconnect endlessly with exponential backoff
+		// until we close the pool. We will wait for 850ms before
+		// checking the number of reconnects. Expected number of
+		// reconnects within 850ms is 3. The sequence of reconnect
+		// waits is: 100ms, 200ms, 400ms (total 700ms). Next reconnect
+		// would take 400ms, which exceeds 1 second. Thus, 3 reconnect
+		// attempts are expected.
+
+		// Counter for connection attempts
+		var connectAttempts atomic.Int32
+
+		// Factory method will be called on each connection attempt
+		factory := func(addr string) (*connection.Connection, error) {
+			// Increment connection attempts counter
+			connectAttempts.Add(1)
+
+			c, err := connection.New(
+				addr,
+				testSpec,
+				readMessageLength,
+				writeMessageLength,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("building iso 8583 connection: %w", err)
+			}
+
+			return c, nil
+		}
+
+		pool, err := connection.NewPool(
+			factory,
+			[]string{"no-live-server-address"}, // connect only to the first server
+			connection.PoolReconnectWait(100*time.Millisecond),
+			connection.PoolMaxReconnectWait(400*time.Millisecond),
+			// let pool start even without connections (it will start reconnecting)
+			connection.PoolMinConnections(0),
+		)
+		require.NoError(t, err)
+
+		// There should be no error even if we try to connect to a non-existing server
+		// as the min connections is set to 0
+		err = pool.Connect()
+		require.NoError(t, err)
+		defer pool.Close()
+
+		time.Sleep(850 * time.Millisecond)
+
+		require.Equal(t, int32(4), connectAttempts.Load(), "expected 4 connection attempts (3 reconnects + 1 initial connect)")
 	})
 
 	t.Run("Close() closes all connections", func(t *testing.T) {

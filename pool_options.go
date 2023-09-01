@@ -10,9 +10,10 @@ type PoolOptions struct {
 	// ReconnectWait sets the time to wait after first re-connect attempt
 	ReconnectWait time.Duration
 
-	// MaxReconnectWait is the maximum wait time for re-connect attempt
-	// if it is set to non-zero value, it will be used as the upper bound
-	// for exponential backoff
+	// MaxReconnectWait specifies the maximum duration to wait between
+	// reconnection attempts, serving as the upper bound for exponential
+	// backoff; if set to zero, there's no exponential backoff and
+	// ReconnectWait is used for each retry.
 	MaxReconnectWait time.Duration
 
 	// ErrorHandler is called in a goroutine with the errors that can't be
@@ -39,6 +40,13 @@ func GetDefaultPoolOptions() PoolOptions {
 func PoolReconnectWait(rw time.Duration) PoolOption {
 	return func(opts *PoolOptions) error {
 		opts.ReconnectWait = rw
+		return nil
+	}
+}
+
+func PoolMaxReconnectWait(rw time.Duration) PoolOption {
+	return func(opts *PoolOptions) error {
+		opts.MaxReconnectWait = rw
 		return nil
 	}
 }
