@@ -181,10 +181,10 @@ func (s *Server) Close() {
 		s.ln.Close()
 	}
 
-	s.wg.Wait()
-
 	s.isClosed = true
 	s.mu.Unlock()
+
+	s.wg.Wait()
 }
 
 func (s *Server) handleConnection(conn net.Conn) error {
