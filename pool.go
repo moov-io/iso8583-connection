@@ -161,6 +161,10 @@ func (p *Pool) handleClosedConnection(closedConn *Connection) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	if p.isClosed {
+		return
+	}
+
 	var connIndex = -1
 	for i, conn := range p.connections {
 		if conn == closedConn {
@@ -180,12 +184,6 @@ func (p *Pool) handleClosedConnection(closedConn *Connection) {
 	p.connections[connIndex] = p.connections[connsNum-1] // Copy last element to index connIndex.
 	p.connections[connsNum-1] = nil                      // Erase last element
 	p.connections = p.connections[:connsNum-1]           // Truncate slice.
-
-	// if pool was closed, don't start recreate goroutine
-	// should we return earlier and keep connection in the pool as it will be closed anyway?
-	if p.isClosed {
-		return
-	}
 
 	// initiate goroutine to reconnect to closedConn.Addr
 	p.wg.Add(1)
