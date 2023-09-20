@@ -19,18 +19,6 @@ var (
 	ErrSendTimeout      = errors.New("message send timeout")
 )
 
-type RejectedMessageError struct {
-	Err error
-}
-
-func (e RejectedMessageError) Error() string {
-	return e.Err.Error()
-}
-
-func (e RejectedMessageError) Unwrap() error {
-	return e.Err
-}
-
 // MessageLengthReader reads message header from the r and returns message length
 type MessageLengthReader func(r io.Reader) (int, error)
 
@@ -741,9 +729,9 @@ func (c *Connection) Addr() string {
 	return c.addr
 }
 
-// RejectMessage returns error to the reply channel that corresponds to the
-// message ID (request ID)
-func (c *Connection) RejectMessage(rejectedMessage *iso8583.Message, reason string) error {
+// RejectMessage returns error to the response err channel that corresponds to
+// the message ID (request ID)
+func (c *Connection) RejectMessage(rejectedMessage *iso8583.Message, rejectionError error) error {
 	reqID, err := c.Opts.RequestIDGenerator.GenerateRequestID(rejectedMessage)
 	if err != nil {
 		return fmt.Errorf("creating request ID:  %w", err)
@@ -754,10 +742,10 @@ func (c *Connection) RejectMessage(rejectedMessage *iso8583.Message, reason stri
 	c.pendingRequestsMu.Unlock()
 
 	if !found {
-		return fmt.Errorf("can't find request for ID: %s", reqID)
+		return fmt.Errorf("can't find response for ID: %s", reqID)
 	}
 
-	response.errCh <- RejectedMessageError{Err: fmt.Errorf("message rejected: %s", reason)}
+	response.errCh <- fmt.Errorf("message rejected: %w", rejectionError)
 
 	return nil
 }
