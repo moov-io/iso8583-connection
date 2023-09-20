@@ -449,6 +449,38 @@ func TestClient_Send(t *testing.T) {
 		require.Equal(t, connection.ErrSendTimeout, err)
 	})
 
+	t.Run("it returns RejectedMessageError when message was rejected", func(t *testing.T) {
+		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength, connection.SendTimeout(100*time.Millisecond))
+		require.NoError(t, err)
+
+		err = c.Connect()
+		require.NoError(t, err)
+		defer c.Close()
+
+		// regular network management message
+		message := iso8583.NewMessage(testSpec)
+		err = message.Marshal(baseFields{
+			MTI:  field.NewStringValue("0800"),
+			STAN: field.NewStringValue(getSTAN()),
+		})
+		require.NoError(t, err)
+
+		_, err = c.Send(message)
+		require.NoError(t, err)
+
+		// network management message to test timeout
+		message = iso8583.NewMessage(testSpec)
+		err = message.Marshal(baseFields{
+			MTI:          field.NewStringValue("0800"),
+			TestCaseCode: field.NewStringValue(TestCaseDelayedResponse),
+			STAN:         field.NewStringValue(getSTAN()),
+		})
+		require.NoError(t, err)
+
+		_, err = c.Send(message)
+		require.Equal(t, connection.ErrSendTimeout, err)
+	})
+
 	t.Run("it does not return ErrSendTimeout when longer SendTimeout is set for Send", func(t *testing.T) {
 		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength, connection.SendTimeout(600*time.Millisecond))
 		require.NoError(t, err)
