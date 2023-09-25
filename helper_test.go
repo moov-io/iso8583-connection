@@ -189,22 +189,22 @@ func NewTestServerWithAddr(addr string) (*testServer, error) {
 		}
 	}
 
-	server := server.New(testSpec, readMessageLength, writeMessageLength, connection.InboundMessageHandler(testServerLogic))
-	server.SetOptions(
+	s := server.New(testSpec, readMessageLength, writeMessageLength, connection.InboundMessageHandler(testServerLogic))
+	s.SetOptions(
 		server.WithErrorHandler(func(err error) {
 			log.Printf("server error: %s", err.Error())
 		}),
 	)
 
 	// start on random port
-	err := server.Start(addr)
+	err := s.Start(addr)
 	if err != nil {
 		return nil, err
 	}
 
 	srv = &testServer{
-		Server: server,
-		Addr:   server.Addr,
+		Server: s,
+		Addr:   s.Addr,
 	}
 
 	return srv, nil
