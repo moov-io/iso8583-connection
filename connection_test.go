@@ -450,7 +450,7 @@ func TestClient_Send(t *testing.T) {
 	})
 
 	t.Run("it returns RejectedMessageError when message was rejected", func(t *testing.T) {
-		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength, connection.SendTimeout(100*time.Millisecond))
+		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength)
 		require.NoError(t, err)
 
 		err = c.Connect()
@@ -477,8 +477,32 @@ func TestClient_Send(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		_, err = c.Send(message)
-		require.Equal(t, connection.ErrSendTimeout, err)
+		// we send the message in the background and it will wait for the response
+		// until SendTimeout is reached or message is rejected
+		var sendErr error
+		waitCh := make(chan struct{})
+		go func() {
+			_, sendErr = c.Send(message)
+			close(waitCh)
+		}()
+
+		// while we are waiting for the response, we reject the message
+		// directly
+		// let's wait a bit to make sure that message was sent
+		time.Sleep(150 * time.Millisecond)
+		err = c.RejectMessage(message, fmt.Errorf("message was rejected"))
+		require.NoError(t, err)
+
+		// now we wait for the Send to finish and check the error
+		<-waitCh
+
+		// now we can check the error type returned by Send
+		var rejectedMessageError *connection.RejectedMessageError
+		require.ErrorAs(t, sendErr, &rejectedMessageError)
+
+		// we can also unwrap the error to get the original error
+		rejectErr := rejectedMessageError.Unwrap()
+		require.EqualError(t, rejectErr, "message was rejected")
 	})
 
 	t.Run("it does not return ErrSendTimeout when longer SendTimeout is set for Send", func(t *testing.T) {

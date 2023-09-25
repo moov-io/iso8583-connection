@@ -19,6 +19,19 @@ var (
 	ErrSendTimeout      = errors.New("message send timeout")
 )
 
+// RejectedMessageError is returned to the `Send` method caller when message is rejected.
+type RejectedMessageError struct {
+	Err error
+}
+
+func (e *RejectedMessageError) Error() string {
+	return fmt.Sprintf("message rejected: %s", e.Err.Error())
+}
+
+func (e *RejectedMessageError) Unwrap() error {
+	return e.Err
+}
+
 // MessageLengthReader reads message header from the r and returns message length
 type MessageLengthReader func(r io.Reader) (int, error)
 
@@ -729,8 +742,14 @@ func (c *Connection) Addr() string {
 	return c.addr
 }
 
-// RejectMessage returns error to the response err channel that corresponds to
-// the message ID (request ID)
+// RejectMessage returns RejectedMessageError to the response err channel that
+// corresponds to the ID of the rejectedMessage. This method is used to reject
+// messages that were sent to the network and response was received, but
+// response code indicates that message was rejected. In many cases, such
+// rejection happens outside of normal request-response flow, so it is not
+// possible to return response to the caller. In such cases,
+// RejectedMessageError is returned.  It's up to the implementation to decide
+// when to call RejectMessage and when to return RejectedMessageError.
 func (c *Connection) RejectMessage(rejectedMessage *iso8583.Message, rejectionError error) error {
 	reqID, err := c.Opts.RequestIDGenerator.GenerateRequestID(rejectedMessage)
 	if err != nil {
@@ -745,7 +764,7 @@ func (c *Connection) RejectMessage(rejectedMessage *iso8583.Message, rejectionEr
 		return fmt.Errorf("can't find response for ID: %s", reqID)
 	}
 
-	response.errCh <- fmt.Errorf("message rejected: %w", rejectionError)
+	response.errCh <- &RejectedMessageError{Err: rejectionError}
 
 	return nil
 }
