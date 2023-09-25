@@ -15,9 +15,8 @@ import (
 type ConnectHandler func(conn net.Conn)
 
 // ErrorHandler is a function that will be called when error occurs during
-// connection handling. Note, that this function will be called in the same
-// goroutine as connection handling. It's up to the user to handle errors
-// and use goroutines if needed to avoid blocking the connection handling.
+// connection handling. Note, that this function may be called from different
+// goroutines, so it must be thread-safe
 type ErrorHandler func(err error)
 
 // ServerConnectionFactoryFunc is a function that creates new connection from

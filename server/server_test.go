@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -67,6 +68,7 @@ func TestServer_WithConnectionFactory(t *testing.T) {
 		var isCalled atomic.Bool
 		var expectedErr = fmt.Errorf("error from connection factory")
 		var gotErr error
+		var mu sync.Mutex
 
 		s.SetOptions(
 			// let return error from connection factory
@@ -77,7 +79,9 @@ func TestServer_WithConnectionFactory(t *testing.T) {
 			// this should be called with error from connection factory
 			server.WithErrorHandler(func(err error) {
 				isCalled.Store(true)
+				mu.Lock()
 				gotErr = err
+				mu.Unlock()
 			}),
 		)
 
@@ -92,6 +96,7 @@ func TestServer_WithConnectionFactory(t *testing.T) {
 		require.NoError(t, err)
 
 		conn.Close()
+		s.Close()
 
 		require.Eventually(t, func() bool {
 			return isCalled.Load() == true
