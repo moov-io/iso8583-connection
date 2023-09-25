@@ -190,6 +190,12 @@ func NewTestServerWithAddr(addr string) (*testServer, error) {
 	}
 
 	server := server.New(testSpec, readMessageLength, writeMessageLength, connection.InboundMessageHandler(testServerLogic))
+	server.SetOptions(
+		server.WithErrorHandler(func(err error) {
+			log.Printf("server error: %s", err.Error())
+		}),
+	)
+
 	// start on random port
 	err := server.Start(addr)
 	if err != nil {

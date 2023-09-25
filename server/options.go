@@ -10,3 +10,11 @@ func WithConnectionFactory(f ServerConnectionFactoryFunc) func(*Server) error {
 		return nil
 	}
 }
+
+func WithErrorHandler(f ErrorHandler) func(*Server) error {
+	return func(s *Server) error {
+		s.errorHandlers = append(s.errorHandlers, f)
+
+		return nil
+	}
+}
