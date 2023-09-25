@@ -108,7 +108,8 @@ func (t *testServer) ReceivedPings() int {
 }
 
 const (
-	TestCaseReply           string = "000"
+	TestCaseReply string = "000"
+	// server waits for 500ms before reply
 	TestCaseDelayedResponse string = "001"
 	TestCasePingCounter     string = "002"
 	// for sending incoming message with same STAN as
@@ -150,7 +151,7 @@ func NewTestServerWithAddr(addr string) (*testServer, error) {
 			switch code {
 			case TestCaseDelayedResponse:
 				// testing value to "sleep" for a 500ms
-				time.Sleep(500 * time.Millisecond)
+				time.Sleep(5000 * time.Millisecond)
 				c.Reply(message)
 			case TestCaseSameSTANRequest:
 				// here we will send message to the client with

@@ -64,7 +64,7 @@ type Server struct {
 	writeMessageLength connection.MessageLengthWriter
 
 	mu              sync.Mutex
-	ConnectHandlers []ConnectHandler
+	connectHandlers []ConnectHandler
 	isClosed        bool
 
 	// connectionFactory is a function that creates new connection
@@ -95,7 +95,7 @@ func (s *Server) SetOptions(opts ...func(*Server) error) error {
 func (s *Server) AddConnectionHandler(h ConnectHandler) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.ConnectHandlers = append(s.ConnectHandlers, h)
+	s.connectHandlers = append(s.connectHandlers, h)
 }
 
 func (s *Server) Start(addr string) error {
@@ -149,8 +149,8 @@ func (s *Server) Start(addr string) error {
 			go func() {
 				// notify all handlers about new connection
 				s.mu.Lock()
-				if s.ConnectHandlers != nil && len(s.ConnectHandlers) > 0 {
-					for _, h := range s.ConnectHandlers {
+				if s.connectHandlers != nil && len(s.connectHandlers) > 0 {
+					for _, h := range s.connectHandlers {
 						go h(conn)
 					}
 				}
