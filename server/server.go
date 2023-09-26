@@ -14,6 +14,11 @@ import (
 // and the conn type is net.Conn, not *connection.Connection
 type ConnectHandler func(conn net.Conn)
 
+// ErrorHandler is a function that will be called when error occurs during
+// connection handling. Note, that this function may be called from different
+// goroutines, so it must be thread-safe
+type ErrorHandler func(err error)
+
 // ServerConnectionFactoryFunc is a function that creates new connection from
 // net.Conn. This function is used to create new connection with custom options
 // (e.g. custom message length reader/writer)
@@ -64,7 +69,8 @@ type Server struct {
 	writeMessageLength connection.MessageLengthWriter
 
 	mu              sync.Mutex
-	ConnectHandlers []ConnectHandler
+	connectHandlers []ConnectHandler
+	errorHandlers   []ErrorHandler
 	isClosed        bool
 
 	// connectionFactory is a function that creates new connection
@@ -95,7 +101,7 @@ func (s *Server) SetOptions(opts ...func(*Server) error) error {
 func (s *Server) AddConnectionHandler(h ConnectHandler) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.ConnectHandlers = append(s.ConnectHandlers, h)
+	s.connectHandlers = append(s.connectHandlers, h)
 }
 
 func (s *Server) Start(addr string) error {
@@ -132,7 +138,7 @@ func (s *Server) Start(addr string) error {
 					return
 				default:
 					// TODO: better handle errors
-					fmt.Printf("Accepting connection: %s\n", err.Error())
+					s.handleError(err)
 					return
 				}
 			}
@@ -149,8 +155,8 @@ func (s *Server) Start(addr string) error {
 			go func() {
 				// notify all handlers about new connection
 				s.mu.Lock()
-				if s.ConnectHandlers != nil && len(s.ConnectHandlers) > 0 {
-					for _, h := range s.ConnectHandlers {
+				if s.connectHandlers != nil && len(s.connectHandlers) > 0 {
+					for _, h := range s.connectHandlers {
 						go h(conn)
 					}
 				}
@@ -158,7 +164,7 @@ func (s *Server) Start(addr string) error {
 
 				err := s.handleConnection(conn)
 				if err != nil {
-					fmt.Printf("Error handling connection: %s\n", err.Error())
+					s.handleError(err)
 				}
 				s.wg.Done()
 			}()
@@ -203,4 +209,13 @@ func (s *Server) handleConnection(conn net.Conn) error {
 	}
 
 	return nil
+}
+
+func (s *Server) handleError(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, h := range s.errorHandlers {
+		h(err)
+	}
 }

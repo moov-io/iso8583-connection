@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -59,6 +60,51 @@ func TestServer_WithConnectionFactory(t *testing.T) {
 
 		s.Close()
 	})
+
+	t.Run("uses custom error handler", func(t *testing.T) {
+		s := server.New(nil, nil, nil)
+		defer s.Close()
+
+		var isCalled atomic.Bool
+		var expectedErr = fmt.Errorf("error from connection factory")
+		var gotErr error
+		var mu sync.Mutex
+
+		s.SetOptions(
+			// let return error from connection factory
+			server.WithConnectionFactory(func(conn net.Conn) (*connection.Connection, error) {
+				return nil, expectedErr
+			}),
+
+			// this should be called with error from connection factory
+			server.WithErrorHandler(func(err error) {
+				isCalled.Store(true)
+				mu.Lock()
+				gotErr = err
+				mu.Unlock()
+			}),
+		)
+
+		err := s.Start("127.0.0.1:")
+		require.NoError(t, err)
+
+		// connect to the server
+		conn, err := connection.New(s.Addr, testSpec, LengthHeaderReader, LengthHeaderWriter)
+		require.NoError(t, err)
+
+		err = conn.Connect()
+		require.NoError(t, err)
+
+		conn.Close()
+		s.Close()
+
+		require.Eventually(t, func() bool {
+			return isCalled.Load() == true
+		}, 100*time.Millisecond, 10*time.Millisecond)
+
+		require.ErrorIs(t, gotErr, expectedErr)
+	})
+
 }
 
 type lengthHeader struct {
