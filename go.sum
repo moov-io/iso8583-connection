@@ -14,6 +14,8 @@ github.com/moov-io/iso8583 v0.20.1 h1:+Rx7aU43VxpikzSFAeRKFm8HSW16O+/vFo58dbWJVy
 github.com/moov-io/iso8583 v0.20.1/go.mod h1:vvlp3liWXnH5pI9dl5PvrtpjS7ZxcdxyYWvd4FpI66A=
 github.com/moov-io/iso8583 v0.21.0 h1:qSt7IHyaTulybcZhdjFPGYDh56AjNokbgfsyOPt96Gc=
 github.com/moov-io/iso8583 v0.21.0/go.mod h1:vvlp3liWXnH5pI9dl5PvrtpjS7ZxcdxyYWvd4FpI66A=
+github.com/moov-io/iso8583 v0.21.1 h1:2SnBom/yw2XJSPP4tUZVgKsNfICz5BKubd8Q33JRsH4=
+github.com/moov-io/iso8583 v0.21.1/go.mod h1:vvlp3liWXnH5pI9dl5PvrtpjS7ZxcdxyYWvd4FpI66A=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/stretchr/testify v1.8.4 h1:CcVxjf3Q8PM0mHUKJCdn+eZZtm5yQwehR5yeSVQQcUk=
