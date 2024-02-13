@@ -1,6 +1,7 @@
 github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ33E=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
+github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/kr/pretty v0.1.0 h1:L/CwN0zerZDmRFUapSPitk6f+Q3+0za1rQkzVuMiMFI=
 github.com/kr/pretty v0.1.0/go.mod h1:dAy3ld7l9f0ibDNOQOHHMYYIIbhfbHSm3C4ZsoJORNo=
 github.com/kr/text v0.2.0 h1:5Nx0Ya0ZqY2ygV366QzturHI13Jq95ApcVaJBhpS+AY=
@@ -18,8 +19,11 @@ github.com/moov-io/iso8583 v0.21.1 h1:2SnBom/yw2XJSPP4tUZVgKsNfICz5BKubd8Q33JRsH
 github.com/moov-io/iso8583 v0.21.1/go.mod h1:vvlp3liWXnH5pI9dl5PvrtpjS7ZxcdxyYWvd4FpI66A=
 github.com/moov-io/iso8583 v0.21.2 h1:FHHbFXFOfEK9yA8siupnmUei77ZNB/74o4NsANu9me8=
 github.com/moov-io/iso8583 v0.21.2/go.mod h1:DePfPe8TCTrSUETPpMq1LQdfSuFj4qxZPkYyb9/cS7I=
+github.com/moovfinancial/visa-iso8583 v0.14.13-0.20240208150258-aac610c1ef61 h1:a7VIZFch1d+kHSmWoJ5ZrioysRVx1TdTHw5nAU3FOOY=
+github.com/moovfinancial/visa-iso8583 v0.14.13-0.20240208150258-aac610c1ef61/go.mod h1:KS/DVZ23z8CxtF8CAEvvYZ54oS8+sfXBP9EbLLXKii8=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
+github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/stretchr/testify v1.8.4 h1:CcVxjf3Q8PM0mHUKJCdn+eZZtm5yQwehR5yeSVQQcUk=
 github.com/stretchr/testify v1.8.4/go.mod h1:sz/lmYIOXD/1dqDmKjjqLyZ2RngseejIcXlSw2iwfAo=
 github.com/yerden/go-util v1.1.4 h1:jd8JyjLHzpEs1ZZQzDkfRgosDtXp/BtIAV1kpNjVTtw=
