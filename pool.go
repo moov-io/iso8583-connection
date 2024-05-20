@@ -165,7 +165,7 @@ func (p *Pool) handleClosedConnection(closedConn *Connection) {
 		return
 	}
 
-	var connIndex = -1
+	connIndex := -1
 	for i, conn := range p.connections {
 		if conn == closedConn {
 			connIndex = i
@@ -264,7 +264,6 @@ func (p *Pool) Close() error {
 				p.handleError(fmt.Errorf("closing connection on pool close: %w", err))
 			}
 		}(conn)
-
 	}
 	wg.Wait()
 

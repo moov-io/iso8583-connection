@@ -1,6 +1,7 @@
 package connection
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
@@ -60,11 +61,20 @@ type Options struct {
 	// returned to the caller
 	ErrorHandler func(err error)
 
+	// Only define a single OnConnect and OnClose functions
+	// the config will error out if both are set
+
 	// OnConnect is called synchronously when a connection is established
 	OnConnect func(c *Connection) error
 
+	// OnConnectCtx is called synchronously when a connection is established
+	OnConnectCtx func(ctx context.Context, c *Connection) error
+
 	// OnClose is called synchronously before a connection is closed
 	OnClose func(c *Connection) error
+
+	// OnCloseCtx is called synchronously before a connection is closed
+	OnCloseCtx func(ctx context.Context, c *Connection) error
 
 	// RequestIDGenerator is used to generate a unique identifier for a request
 	// so that responses from the server can be matched to the original request.
@@ -99,6 +109,16 @@ func GetDefaultOptions() Options {
 		TLSConfig:          nil,
 		RequestIDGenerator: &defaultRequestIDGenerator{},
 	}
+}
+
+func (o *Options) Validate() error {
+	if o.OnConnect != nil && o.OnConnectCtx != nil {
+		return fmt.Errorf("OnConnect and OnConnectCtx are mutually exclusive")
+	}
+	if o.OnClose != nil && o.OnCloseCtx != nil {
+		return fmt.Errorf("OnClose and OnCloseCtx are mutually exclusive")
+	}
+	return nil
 }
 
 // IdleTime sets an IdleTime option
@@ -191,9 +211,25 @@ func OnConnect(h func(c *Connection) error) Option {
 	}
 }
 
+// OnConnectCtx sets a callback that will be synchronously  called when connection is established.
+// If it returns error, then connections will be closed and re-connect will be attempted
+func OnConnectCtx(h func(ctx context.Context, c *Connection) error) Option {
+	return func(opts *Options) error {
+		opts.OnConnectCtx = h
+		return nil
+	}
+}
+
 func OnClose(h func(c *Connection) error) Option {
 	return func(opts *Options) error {
 		opts.OnClose = h
+		return nil
+	}
+}
+
+func OnCloseCtx(h func(ctx context.Context, c *Connection) error) Option {
+	return func(opts *Options) error {
+		opts.OnCloseCtx = h
 		return nil
 	}
 }
