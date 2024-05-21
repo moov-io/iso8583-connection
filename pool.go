@@ -1,6 +1,7 @@
 package connection
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -62,6 +63,11 @@ func (p *Pool) handleError(err error) {
 
 // Connect creates poll of connections by calling Factory method and connect them all
 func (p *Pool) Connect() error {
+	return p.ConnectCtx(context.Background())
+}
+
+// Connect creates poll of connections by calling Factory method and connect them all
+func (p *Pool) ConnectCtx(ctx context.Context) error {
 	// We need to close pool (with all potentially running goroutines) if
 	// connection creation fails. Example of such situation is when we
 	// successfully created 2 connections, but 3rd failed and minimum
@@ -72,7 +78,7 @@ func (p *Pool) Connect() error {
 	var connectErr error
 	defer func() {
 		if connectErr != nil {
-			p.Close()
+			p.CloseCtx(ctx)
 		}
 	}()
 
@@ -95,7 +101,7 @@ func (p *Pool) Connect() error {
 		// set own handler when connection is closed
 		conn.SetOptions(ConnectionClosedHandler(p.handleClosedConnection))
 
-		err = conn.Connect()
+		err = conn.ConnectCtx(ctx)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("connecting to %s: %w", addr, err))
 			p.handleError(fmt.Errorf("failed to connect to %s: %w", conn.addr, err))
@@ -234,6 +240,11 @@ func (p *Pool) recreateConnection(closedConn *Connection) {
 
 // Close closes all connections in the pool
 func (p *Pool) Close() error {
+	return p.CloseCtx(context.Background())
+}
+
+// CloseCtx closes all connections in the pool
+func (p *Pool) CloseCtx(ctx context.Context) error {
 	p.mu.Lock()
 	if p.isClosed {
 		p.mu.Unlock()
