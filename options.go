@@ -111,16 +111,6 @@ func GetDefaultOptions() Options {
 	}
 }
 
-func (o *Options) Validate() error {
-	if o.OnConnect != nil && o.OnConnectCtx != nil {
-		return fmt.Errorf("OnConnect and OnConnectCtx are mutually exclusive")
-	}
-	if o.OnClose != nil && o.OnCloseCtx != nil {
-		return fmt.Errorf("OnClose and OnCloseCtx are mutually exclusive")
-	}
-	return nil
-}
-
 // IdleTime sets an IdleTime option
 func IdleTime(d time.Duration) Option {
 	return func(o *Options) error {

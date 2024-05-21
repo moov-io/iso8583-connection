@@ -108,10 +108,6 @@ func New(addr string, spec *iso8583.MessageSpec, mlReader MessageLengthReader, m
 		}
 	}
 
-	if err := opts.Validate(); err != nil {
-		return nil, fmt.Errorf("validating options: %w", err)
-	}
-
 	return &Connection{
 		addr:               addr,
 		Opts:               opts,
@@ -152,45 +148,7 @@ func (c *Connection) SetOptions(options ...Option) error {
 
 // Connect establishes the connection to the server using configured Addr
 func (c *Connection) Connect() error {
-	var conn net.Conn
-	var err error
-
-	if c.conn != nil {
-		return nil
-	}
-
-	d := &net.Dialer{Timeout: c.Opts.ConnectTimeout}
-
-	if c.Opts.TLSConfig != nil {
-		conn, err = tls.DialWithDialer(d, "tcp", c.addr, c.Opts.TLSConfig)
-	} else {
-		conn, err = d.Dial("tcp", c.addr)
-	}
-
-	if err != nil {
-		return fmt.Errorf("connecting to server %s: %w", c.addr, err)
-	}
-
-	c.conn = conn
-
-	c.run()
-
-	if c.Opts.OnConnect != nil {
-		if err := c.Opts.OnConnect(c); err != nil {
-			// close connection if OnConnect failed
-			// but ignore the potential error from Close()
-			// as it's a rare case
-			_ = c.Close()
-
-			return fmt.Errorf("on connect callback %s: %w", c.addr, err)
-		}
-	}
-
-	if c.Opts.ConnectionEstablishedHandler != nil {
-		go c.Opts.ConnectionEstablishedHandler(c)
-	}
-
-	return nil
+	return c.ConnectCtx(context.Background())
 }
 
 // ConnectCtx establishes the connection to the server using configured Addr
@@ -220,6 +178,15 @@ func (c *Connection) ConnectCtx(ctx context.Context) error {
 
 	if c.Opts.OnConnectCtx != nil {
 		if err := c.Opts.OnConnectCtx(ctx, c); err != nil {
+			// close connection if OnConnect failed
+			// but ignore the potential error from Close()
+			// as it's a rare case
+			_ = c.Close()
+
+			return fmt.Errorf("on connect callback %s: %w", c.addr, err)
+		}
+	} else if c.Opts.OnConnect != nil {
+		if err := c.Opts.OnConnect(c); err != nil {
 			// close connection if OnConnect failed
 			// but ignore the potential error from Close()
 			// as it's a rare case
@@ -346,22 +313,7 @@ func (c *Connection) close() error {
 // Close waits for pending requests to complete and then closes network
 // connection with ISO 8583 server
 func (c *Connection) Close() error {
-	if c.Opts.OnClose != nil {
-		if err := c.Opts.OnClose(c); err != nil {
-			return fmt.Errorf("on close callback: %w", err)
-		}
-	}
-
-	c.mutex.Lock()
-	// if we are closing already, just return
-	if c.closing {
-		c.mutex.Unlock()
-		return nil
-	}
-	c.closing = true
-	c.mutex.Unlock()
-
-	return c.close()
+	return c.CloseCtx(context.Background())
 }
 
 // CloseCtx waits for pending requests to complete and then closes network
@@ -369,6 +321,10 @@ func (c *Connection) Close() error {
 func (c *Connection) CloseCtx(ctx context.Context) error {
 	if c.Opts.OnCloseCtx != nil {
 		if err := c.Opts.OnCloseCtx(ctx, c); err != nil {
+			return fmt.Errorf("on close callback: %w", err)
+		}
+	} else if c.Opts.OnClose != nil {
+		if err := c.Opts.OnClose(c); err != nil {
 			return fmt.Errorf("on close callback: %w", err)
 		}
 	}

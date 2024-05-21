@@ -1160,36 +1160,6 @@ func TestClient_Options(t *testing.T) {
 
 		require.Equal(t, 1, callsCounter)
 	})
-
-	t.Run("Cannot configure OnConnect and OnConnectCtx", func(t *testing.T) {
-		c, err := connection.New(
-			"localhost:0",
-			testSpec,
-			readMessageLength,
-			writeMessageLength,
-			connection.SendTimeout(500*time.Millisecond),
-			connection.OnConnect(func(c *connection.Connection) error { return nil }),
-			connection.OnConnectCtx(func(ctx context.Context, c *connection.Connection) error { return nil }),
-		)
-
-		require.Error(t, err)
-		require.Nil(t, c)
-	})
-
-	t.Run("Cannot configure OnClose and OnCloseCtx", func(t *testing.T) {
-		c, err := connection.New(
-			"localhost:0",
-			testSpec,
-			readMessageLength,
-			writeMessageLength,
-			connection.SendTimeout(500*time.Millisecond),
-			connection.OnClose(func(c *connection.Connection) error { return nil }),
-			connection.OnCloseCtx(func(ctx context.Context, c *connection.Connection) error { return nil }),
-		)
-
-		require.Error(t, err)
-		require.Nil(t, c)
-	})
 }
 
 func TestClientWithMessageReaderAndWriter(t *testing.T) {
