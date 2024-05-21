@@ -188,9 +188,6 @@ func TestClient_Connect(t *testing.T) {
 		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength, connection.OnClose(onClose))
 		require.NoError(t, err)
 
-		// err = c.Connect()
-		// require.NoError(t, err)
-
 		err = c.Close()
 		require.NoError(t, err)
 
@@ -214,9 +211,6 @@ func TestClient_Connect(t *testing.T) {
 
 		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength, connection.OnCloseCtx(onCloseCtx))
 		require.NoError(t, err)
-
-		// err = c.Connect()
-		// require.NoError(t, err)
 
 		err = c.CloseCtx(context.Background())
 		require.NoError(t, err)
