@@ -176,21 +176,19 @@ func (c *Connection) ConnectCtx(ctx context.Context) error {
 
 	c.run()
 
-	if c.Opts.OnConnectCtx != nil {
-		if err := c.Opts.OnConnectCtx(ctx, c); err != nil {
-			// close connection if OnConnect failed
-			// but ignore the potential error from Close()
-			// as it's a rare case
-			_ = c.Close()
-
-			return fmt.Errorf("on connect callback %s: %w", c.addr, err)
+	onConnect := c.Opts.OnConnectCtx
+	if onConnect == nil && c.Opts.OnConnect != nil {
+		onConnect = func(_ context.Context, c *Connection) error {
+			return c.Opts.OnConnect(c)
 		}
-	} else if c.Opts.OnConnect != nil {
-		if err := c.Opts.OnConnect(c); err != nil {
+	}
+
+	if onConnect != nil {
+		if err := onConnect(ctx, c); err != nil {
 			// close connection if OnConnect failed
 			// but ignore the potential error from Close()
 			// as it's a rare case
-			_ = c.Close()
+			_ = c.CloseCtx(ctx)
 
 			return fmt.Errorf("on connect callback %s: %w", c.addr, err)
 		}
@@ -319,12 +317,15 @@ func (c *Connection) Close() error {
 // CloseCtx waits for pending requests to complete and then closes network
 // connection with ISO 8583 server
 func (c *Connection) CloseCtx(ctx context.Context) error {
-	if c.Opts.OnCloseCtx != nil {
-		if err := c.Opts.OnCloseCtx(ctx, c); err != nil {
-			return fmt.Errorf("on close callback: %w", err)
+	onClose := c.Opts.OnCloseCtx
+	if onClose == nil && c.Opts.OnClose != nil {
+		onClose = func(_ context.Context, c *Connection) error {
+			return c.Opts.OnClose(c)
 		}
-	} else if c.Opts.OnClose != nil {
-		if err := c.Opts.OnClose(c); err != nil {
+	}
+
+	if onClose != nil {
+		if err := onClose(ctx, c); err != nil {
 			return fmt.Errorf("on close callback: %w", err)
 		}
 	}

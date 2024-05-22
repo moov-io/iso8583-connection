@@ -270,7 +270,7 @@ func (p *Pool) CloseCtx(ctx context.Context) error {
 	for _, conn := range p.connections {
 		go func(conn *Connection) {
 			defer wg.Done()
-			err := conn.Close()
+			err := conn.CloseCtx(ctx)
 			if err != nil {
 				p.handleError(fmt.Errorf("closing connection on pool close: %w", err))
 			}
