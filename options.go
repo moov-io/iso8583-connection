@@ -1,6 +1,7 @@
 package connection
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
@@ -60,11 +61,19 @@ type Options struct {
 	// returned to the caller
 	ErrorHandler func(err error)
 
+	// If both OnConnect and OnConnectCtx are set, OnConnectCtx will be used
 	// OnConnect is called synchronously when a connection is established
 	OnConnect func(c *Connection) error
 
+	// OnConnectCtx is called synchronously when a connection is established
+	OnConnectCtx func(ctx context.Context, c *Connection) error
+
+	// If both OnClose and OnCloseCtx are set, OnCloseCtx will be used
 	// OnClose is called synchronously before a connection is closed
 	OnClose func(c *Connection) error
+
+	// OnCloseCtx is called synchronously before a connection is closed
+	OnCloseCtx func(ctx context.Context, c *Connection) error
 
 	// RequestIDGenerator is used to generate a unique identifier for a request
 	// so that responses from the server can be matched to the original request.
@@ -191,9 +200,25 @@ func OnConnect(h func(c *Connection) error) Option {
 	}
 }
 
+// OnConnectCtx sets a callback that will be synchronously  called when connection is established.
+// If it returns error, then connections will be closed and re-connect will be attempted
+func OnConnectCtx(h func(ctx context.Context, c *Connection) error) Option {
+	return func(opts *Options) error {
+		opts.OnConnectCtx = h
+		return nil
+	}
+}
+
 func OnClose(h func(c *Connection) error) Option {
 	return func(opts *Options) error {
 		opts.OnClose = h
+		return nil
+	}
+}
+
+func OnCloseCtx(h func(ctx context.Context, c *Connection) error) Option {
+	return func(opts *Options) error {
+		opts.OnCloseCtx = h
 		return nil
 	}
 }

@@ -2,6 +2,7 @@ package connection_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -27,8 +28,10 @@ type baseFields struct {
 	STAN         *field.String `index:"11"`
 }
 
-var stan int
-var stanMu sync.Mutex
+var (
+	stan   int
+	stanMu sync.Mutex
+)
 
 func getSTAN() string {
 	stanMu.Lock()
@@ -145,6 +148,31 @@ func TestClient_Connect(t *testing.T) {
 		}, 100*time.Millisecond, 20*time.Millisecond, "onConnect should be called")
 	})
 
+	t.Run("OnConnectCtx is called", func(t *testing.T) {
+		server, err := NewTestServer()
+		require.NoError(t, err)
+		defer server.Close()
+
+		var onConnectCalled int32
+		onConnectCtx := func(ctx context.Context, c *connection.Connection) error {
+			// increase the counter
+			atomic.AddInt32(&onConnectCalled, 1)
+			return nil
+		}
+
+		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength, connection.OnConnectCtx(onConnectCtx))
+		require.NoError(t, err)
+
+		err = c.ConnectCtx(context.Background())
+		require.NoError(t, err)
+		defer c.Close()
+
+		// eventually the onConnectCounter should be 1
+		require.Eventually(t, func() bool {
+			return atomic.LoadInt32(&onConnectCalled) == 1
+		}, 100*time.Millisecond, 20*time.Millisecond, "onConnect should be called")
+	})
+
 	t.Run("OnClose is called", func(t *testing.T) {
 		server, err := NewTestServer()
 		require.NoError(t, err)
@@ -160,10 +188,31 @@ func TestClient_Connect(t *testing.T) {
 		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength, connection.OnClose(onClose))
 		require.NoError(t, err)
 
-		// err = c.Connect()
-		// require.NoError(t, err)
-
 		err = c.Close()
+		require.NoError(t, err)
+
+		// eventually the onClosedCalled should be 1
+		require.Eventually(t, func() bool {
+			return atomic.LoadInt32(&onClosedCalled) == 1
+		}, 100*time.Millisecond, 20*time.Millisecond, "onClose should be called")
+	})
+
+	t.Run("OnCloseCtx is called", func(t *testing.T) {
+		server, err := NewTestServer()
+		require.NoError(t, err)
+		defer server.Close()
+
+		var onClosedCalled int32
+		onCloseCtx := func(ctx context.Context, c *connection.Connection) error {
+			// increase the counter
+			atomic.AddInt32(&onClosedCalled, 1)
+			return nil
+		}
+
+		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength, connection.OnCloseCtx(onCloseCtx))
+		require.NoError(t, err)
+
+		err = c.CloseCtx(context.Background())
 		require.NoError(t, err)
 
 		// eventually the onClosedCalled should be 1
@@ -682,7 +731,6 @@ func TestClient_Send(t *testing.T) {
 
 		// and that response for the first message was received second
 		require.Equal(t, receivedSTANs[1], stan1)
-
 	})
 
 	t.Run("automatically sends ping messages after ping interval", func(t *testing.T) {
@@ -985,7 +1033,6 @@ func TestClient_Send(t *testing.T) {
 			return server.ReceivedPings() > 0
 		}, 200*time.Millisecond, 50*time.Millisecond, "no ping messages were sent after read timeout")
 	})
-
 }
 
 func TestClient_Options(t *testing.T) {
@@ -1019,7 +1066,6 @@ func TestClient_Options(t *testing.T) {
 		require.Eventually(t, func() bool {
 			return atomic.LoadInt32(&callsCounter) > 0
 		}, 500*time.Millisecond, 50*time.Millisecond, "error handler was never called")
-
 	})
 
 	t.Run("ClosedHandler is called when connection is closed", func(t *testing.T) {
@@ -1319,9 +1365,11 @@ func (m *TrackingRWCloser) Write(p []byte) (n int, err error) {
 
 	return 0, nil
 }
+
 func (m *TrackingRWCloser) Read(p []byte) (n int, err error) {
 	return 0, nil
 }
+
 func (m *TrackingRWCloser) Close() error {
 	return nil
 }

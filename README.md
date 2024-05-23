@@ -76,7 +76,7 @@ This section explains the various stages at which different handler functions ar
 
 #### On connection establishment:
 
-- **`OnConnect`**: This handler is invoked immediately after the TCP connection is made. It can be utilized for operations that should be performed before the connection is officially considered established (e.g., sending `SignOn` message and receiving its response).
+- **`OnConnect`** or **`OnConnectCtx`**: This handler is invoked immediately after the TCP connection is made. It can be utilized for operations that should be performed before the connection is officially considered established (e.g., sending `SignOn` message and receiving its response). **NOTE** If both `OnConnect` and `OnConnectCtx` are defined, `OnConnectCtx` will be used.
 
 - **`ConnectionEstablishedHandler (async)`**: This asynchronous handler is triggered when the connection is logically considered established.
 
@@ -100,7 +100,7 @@ This section explains the various stages at which different handler functions ar
 
 - **`ConnectionClosedHandlers (async)`**: These asynchronous handlers are invoked when a connection is closed, either by the server or due to a connection error.
 
-- **`OnClose`**: This handler is activated when we manually close the connection.
+- **`OnClose`** or **`OnCloseCtx`**: This handler is activated when we manually close the connection. **NOTE** If both `OnClose` and `OnCloseCtx` are defined, `OnCloseCtx` will be used.
 
 
 ### (m)TLS connection
@@ -268,6 +268,30 @@ Following options are supported:
 * `ErrorHandler` is called in a goroutine with the errors that can't be returned to the caller (from other goroutines)
 * `MinConnections` is the number of connections required to be established when we connect the pool
 * `ConnectionsFilter` is a function to filter connections in the pool for `Get`, `IsDegraded` or `IsUp` methods
+
+## Context
+You can provide context to the Connect and Close functions in addition to defining `OnConnectCtx` and `OnCloseCtx` in the connection options. This will allow you to pass along telemetry or any other information on contexts through from the Connect/Close calls to your handler functions:
+
+```go
+c, err := connection.New("127.0.0.1:9999", brandSpec, readMessageLength, writeMessageLength,
+	connection.SendTimeout(100*time.Millisecond),
+	connection.IdleTime(50*time.Millisecond),
+    connect.OnConnectCtx(func(ctx context.Context, c *connection.Connection){
+        return signOnFunc(ctx, c)
+    }),
+    connect.OnCloseCtx(func(ctx context.Context, c *connection.Connection){
+        return signOffFunc(ctx, c)
+    }),
+)
+
+ctx := context.Background()
+c.ConnectCtx(ctx)
+
+...
+
+c.CloseCtx(ctx)
+
+```
 
 ## Benchmark
 

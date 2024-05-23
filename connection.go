@@ -2,6 +2,7 @@ package connection
 
 import (
 	"bufio"
+	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -147,6 +148,11 @@ func (c *Connection) SetOptions(options ...Option) error {
 
 // Connect establishes the connection to the server using configured Addr
 func (c *Connection) Connect() error {
+	return c.ConnectCtx(context.Background())
+}
+
+// ConnectCtx establishes the connection to the server using configured Addr
+func (c *Connection) ConnectCtx(ctx context.Context) error {
 	var conn net.Conn
 	var err error
 
@@ -170,12 +176,19 @@ func (c *Connection) Connect() error {
 
 	c.run()
 
-	if c.Opts.OnConnect != nil {
-		if err := c.Opts.OnConnect(c); err != nil {
+	onConnect := c.Opts.OnConnectCtx
+	if onConnect == nil && c.Opts.OnConnect != nil {
+		onConnect = func(_ context.Context, c *Connection) error {
+			return c.Opts.OnConnect(c)
+		}
+	}
+
+	if onConnect != nil {
+		if err := onConnect(ctx, c); err != nil {
 			// close connection if OnConnect failed
 			// but ignore the potential error from Close()
 			// as it's a rare case
-			_ = c.Close()
+			_ = c.CloseCtx(ctx)
 
 			return fmt.Errorf("on connect callback %s: %w", c.addr, err)
 		}
@@ -261,7 +274,6 @@ func (c *Connection) handleConnectionError(err error) {
 			case <-done:
 				return
 			}
-
 		}
 	}()
 
@@ -299,8 +311,21 @@ func (c *Connection) close() error {
 // Close waits for pending requests to complete and then closes network
 // connection with ISO 8583 server
 func (c *Connection) Close() error {
-	if c.Opts.OnClose != nil {
-		if err := c.Opts.OnClose(c); err != nil {
+	return c.CloseCtx(context.Background())
+}
+
+// CloseCtx waits for pending requests to complete and then closes network
+// connection with ISO 8583 server
+func (c *Connection) CloseCtx(ctx context.Context) error {
+	onClose := c.Opts.OnCloseCtx
+	if onClose == nil && c.Opts.OnClose != nil {
+		onClose = func(_ context.Context, c *Connection) error {
+			return c.Opts.OnClose(c)
+		}
+	}
+
+	if onClose != nil {
+		if err := onClose(ctx, c); err != nil {
 			return fmt.Errorf("on close callback: %w", err)
 		}
 	}
