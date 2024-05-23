@@ -61,15 +61,14 @@ type Options struct {
 	// returned to the caller
 	ErrorHandler func(err error)
 
-	// Only define a single OnConnect and OnClose functions
-	// the config will error out if both are set
-
+	// If both OnConnect and OnConnectCtx are set, OnConnectCtx will be used
 	// OnConnect is called synchronously when a connection is established
 	OnConnect func(c *Connection) error
 
 	// OnConnectCtx is called synchronously when a connection is established
 	OnConnectCtx func(ctx context.Context, c *Connection) error
 
+	// If both OnClose and OnCloseCtx are set, OnCloseCtx will be used
 	// OnClose is called synchronously before a connection is closed
 	OnClose func(c *Connection) error
 
