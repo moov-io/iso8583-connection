@@ -158,12 +158,13 @@ if mti != "0810" {
 
 ## Connection `Pool`
 
-Sometimes you want to establish connections to multiple servers and re-create
+Sometimes you want to establish multiple connections and re-create
 them when such connections are closed due to a network errors. Connection `Pool`
 is really helpful for such use cases.
 
-To use `Pool` first, you need to create factory function that knows how to create
-connections and list of adresses you want to establish connection with.
+To use Pool, first, you need to create a factory function that knows how to
+create connections and a list of addresses you want to establish connections
+with. You can establish connections with different or the same addresses.
 
 ```go
 // Factory method that will build connection
