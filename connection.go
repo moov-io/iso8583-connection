@@ -326,7 +326,7 @@ func (c *Connection) CloseCtx(ctx context.Context) error {
 
 	if onClose != nil {
 		if err := onClose(ctx, c); err != nil {
-			return fmt.Errorf("on close callback: %w", err)
+			c.handleError(fmt.Errorf("on close callback: %w", err))
 		}
 	}
 
