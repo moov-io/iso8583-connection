@@ -47,8 +47,9 @@ type Options struct {
 	// * to handle network management messages (echo, heartbeat, etc.)
 	InboundMessageHandler func(c *Connection, message *iso8583.Message)
 
-	// ConnectionClosedHandlers is called when connection is closed by server or there
-	// were network errors during network read/write
+	// ConnectionClosedHandlers is called after connection is closed by us,
+	// by the server or when there are network errors during network
+	// read/write
 	ConnectionClosedHandlers []func(c *Connection)
 
 	// ConnectionEstablishedHandler is called when connection is
