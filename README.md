@@ -296,37 +296,78 @@ c.CloseCtx(ctx)
 
 ## Benchmark
 
-To benchmark the connection, run:
+To benchmark the connection, we created a test server that sends a response to
+each request. Therefore, the benchmark measures the time it takes to send a
+message and receive a response by both the client and the server. If you are
+looking to measure client performance only, you should either run the test
+server on a separate machine, or, with some approximation, you can multiply the
+results by 2.
+
+For the connection benchmark, we pack/unpack an ISO 8583 message with only 2
+fields: `MTI` and `STAN`.
+
+We have two types of benchmarks: *BenchmarkParallel* and *BenchmarkProcess*.
+
+*BenchmarkParallel* uses `b.N` goroutines to send (and receive) messages to the
+server. You can set the number of goroutines using the `-cpu` flag. Please note
+that the `-cpu` flag also sets `GOMAXPROCS`.
+
+For example, to run the benchmark with 6 goroutines/CPUs/cores, use the
+following command:
 
 ```
-go test -bench=BenchmarkSend -run=XXX
+go test -bench=BenchmarkParallel -cpu=6
+```
+
+Be aware that results may vary depending on the number of actual CPUs, cores, throttling, and system load.
+
+Here is the result on MacBook Pro:
+
+```
+➜ go test -bench=BenchmarkParallel -cpu 6
+goos: darwin
+goarch: amd64
+pkg: github.com/moov-io/iso8583-connection
+cpu: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz
+BenchmarkParallel-6        63703             18849 ns/op
+PASS
+ok      github.com/moov-io/iso8583-connection   26.079s
+```
+
+It shows that 53K messages were sent and recieved by both client and server in 1sec.
+
+*BenchmarkProcessNNN*, where NNN is the number of messages to send, is another type of benchmark. In
+this benchmark, the we send and receive messages to the server concurrently by running NNN goroutines.
+
+To run such benchmarks, use:
+
+```
+go test -bench=BenchmarkProcess
 ```
 
 Here are the latest results on MacBook Pro:
 
 ```
-➜ go test -bench=BenchmarkSend -run=XXX
+➜ go test -bench=BenchmarkProcess -cpu 6
 goos: darwin
 goarch: amd64
-pkg: github.com/moovfinancial/iso8583-client
+pkg: github.com/moov-io/iso8583-connection
 cpu: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz
-BenchmarkSend100-12                  560           2019912 ns/op
-BenchmarkSend1000-12                  66          18435428 ns/op
-BenchmarkSend10000-12                  6         210433011 ns/op
-BenchmarkSend100000-12                 1        2471006590 ns/op
+BenchmarkProcess100-6                732           1579450 ns/op
+BenchmarkProcess1000-6                75          15220504 ns/op
+BenchmarkProcess10000-6                7         149483539 ns/op
+BenchmarkProcess100000-6               1        1681237716 ns/op
 PASS
-ok      github.com/moov-io/iso8583-connection    7.784s
+ok      github.com/moov-io/iso8583-connection   29.967s
 ```
 
 It shows that:
-* time is linear (it takes ten times more time to send ten times more messages)
-* 2.5sec to send/receive 100K messages
-* 210ms to send/receive 10K messages
-* 18ms to send/receive 1000 messages
-* 2ms to send/receive 100 messages
+* The time taken scales approximately linearly with the number of messages processed.
+* 1.681 seconds to send/receive 100,000 messages by both client and server.
+* 149.48 milliseconds to send/receive 10,000 messages by both client and server.
+* 15.22 milliseconds to send/receive 1,000 messages by both client and server.
+* 1.579 milliseconds to send/receive 100 messages by both client and server.
 
-_Note, that these benchmarks currently measure not only the client performance
-(send/receive) but also the performance of the test server._
 
 ## License
 
