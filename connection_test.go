@@ -1437,15 +1437,53 @@ func TestClient_SetOptions(t *testing.T) {
 	require.NotNil(t, c.Opts.TLSConfig)
 }
 
-func BenchmarkProcess100Messages(b *testing.B) { benchmarkSend(100, b) }
+func BenchmarkParallel(b *testing.B) {
+	server, err := NewTestServer()
+	if err != nil {
+		b.Fatal("starting test server: ", err)
+	}
 
-func BenchmarkProcess1000Messages(b *testing.B) { benchmarkSend(1000, b) }
+	c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength,
+		connection.SendTimeout(500*time.Millisecond),
+	)
+	if err != nil {
+		b.Fatal("creating client: ", err)
+	}
 
-func BenchmarkProcess10000Messages(b *testing.B) { benchmarkSend(10000, b) }
+	err = c.Connect()
+	if err != nil {
+		b.Fatal("connecting to the server: ", err)
+	}
 
-func BenchmarkProcess100000Messages(b *testing.B) { benchmarkSend(100000, b) }
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			message := iso8583.NewMessage(testSpec)
+			message.MTI("0800")
+			message.Field(11, getSTAN())
 
-func benchmarkSend(m int, b *testing.B) {
+			_, err := c.Send(message)
+			if err != nil {
+				b.Fatal("sending message: ", err)
+			}
+		}
+	})
+
+	err = c.Close()
+	if err != nil {
+		b.Fatal("closing client: ", err)
+	}
+	server.Close()
+}
+
+func BenchmarkProcess100(b *testing.B) { benchmarkProcess(100, b) }
+
+func BenchmarkProcess1000(b *testing.B) { benchmarkProcess(1000, b) }
+
+func BenchmarkProcess10000(b *testing.B) { benchmarkProcess(10000, b) }
+
+func BenchmarkProcess100000(b *testing.B) { benchmarkProcess(100000, b) }
+
+func benchmarkProcess(m int, b *testing.B) {
 	server, err := NewTestServer()
 	if err != nil {
 		b.Fatal("starting test server: ", err)
