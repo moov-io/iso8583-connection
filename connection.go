@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/moov-io/iso8583"
+	iso8583Errors "github.com/moov-io/iso8583/errors"
 	"github.com/moov-io/iso8583/utils"
 )
 
@@ -580,7 +581,7 @@ func (c *Connection) writeLoop() {
 			if err != nil {
 				c.handleError(fmt.Errorf("writing message: %w", err))
 
-				var packErr *iso8583.PackError
+				var packErr *iso8583Errors.PackError
 				if errors.As(err, &packErr) {
 					// let caller know that the message was not sent because of pack error.
 					// We don't set all type of errors to errCh as this case is handled
@@ -646,7 +647,7 @@ func (c *Connection) readLoop() {
 
 			// if err is UnpackError, we can still continue reading
 			// from the connection
-			var unpackErr *iso8583.UnpackError
+			var unpackErr *iso8583Errors.UnpackError
 			if errors.As(err, &unpackErr) {
 				continue
 			}

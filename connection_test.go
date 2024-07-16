@@ -17,6 +17,7 @@ import (
 	"github.com/moov-io/iso8583"
 	connection "github.com/moov-io/iso8583-connection"
 	"github.com/moov-io/iso8583/encoding"
+	iso8583Errors "github.com/moov-io/iso8583/errors"
 	"github.com/moov-io/iso8583/field"
 	"github.com/moov-io/iso8583/prefix"
 	"github.com/stretchr/testify/require"
@@ -390,7 +391,7 @@ func TestClient_Send(t *testing.T) {
 		// then Send should return PackError
 		require.Error(t, err)
 
-		var packError *iso8583.PackError
+		var packError *iso8583Errors.PackError
 		require.ErrorAs(t, err, &packError)
 	})
 
@@ -468,7 +469,7 @@ func TestClient_Send(t *testing.T) {
 			mu.Lock()
 			defer mu.Unlock()
 
-			var unpackErr *iso8583.UnpackError
+			var unpackErr *iso8583Errors.UnpackError
 			if errors.As(handledError, &unpackErr) {
 				require.EqualError(t, handledError, "failed to read message from connection")
 				require.EqualError(t, unpackErr, "failed to unpack field 63: no specification found")
