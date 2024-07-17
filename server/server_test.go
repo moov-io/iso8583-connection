@@ -6,10 +6,9 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
-
-	"sync/atomic"
 
 	"github.com/moov-io/iso8583"
 	connection "github.com/moov-io/iso8583-connection"
@@ -66,7 +65,7 @@ func TestServer_WithConnectionFactory(t *testing.T) {
 		defer s.Close()
 
 		var isCalled atomic.Bool
-		var expectedErr = fmt.Errorf("error from connection factory")
+		expectedErr := fmt.Errorf("error from connection factory")
 		var gotErr error
 		var mu sync.Mutex
 
@@ -95,7 +94,9 @@ func TestServer_WithConnectionFactory(t *testing.T) {
 		err = conn.Connect()
 		require.NoError(t, err)
 
-		conn.Close()
+		err = conn.Close()
+		require.NoError(t, err)
+
 		s.Close()
 
 		require.Eventually(t, func() bool {
@@ -104,7 +105,6 @@ func TestServer_WithConnectionFactory(t *testing.T) {
 
 		require.ErrorIs(t, gotErr, expectedErr)
 	})
-
 }
 
 type lengthHeader struct {
