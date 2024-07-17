@@ -28,7 +28,7 @@ Following options are supported:
 * PingHandler - called when no message was sent during idle time. It should be safe for concurrent use.
 * InboundMessageHandler - called when a message from the server is received or no matching request for the message was found. InboundMessageHandler must be safe to be called concurrenty.
 * ReadTimeoutHandler - called when no messages have been received during specified ReadTimeout wait time. It should be safe for concurrent use.
-* ConnectionClosedHandler - is called when connection is closed by server or there were errors during network read/write that led to connection closure
+* ConnectionClosedHandler - is called when connection is closed by us, by server or there were errors during network read/write that led to connection closure
 * ErrorHandler - is called with the error when connection fails to perform some operation. In some cases instance of a `SafeError` will be passed to prevent data leaks ([detalis](https://github.com/moov-io/iso8583/pull/185))
 
 If you want to override default options, you can do this when creating instance of a client or setting it separately using `SetOptions(options...)` method.
@@ -98,9 +98,9 @@ This section explains the various stages at which different handler functions ar
 
 #### On connection closure:
 
-- **`ConnectionClosedHandlers (async)`**: These asynchronous handlers are invoked when a connection is closed, either by the server or due to a connection error.
+- **`ConnectionClosedHandlers (async)`**: These asynchronous handlers are invoked after connection is closed by us, by the server or due to the network errors
 
-- **`OnClose`** or **`OnCloseCtx`**: This handler is activated when we manually close the connection. **NOTE** If both `OnClose` and `OnCloseCtx` are defined, `OnCloseCtx` will be used.
+- **`OnClose`** or **`OnCloseCtx`**: This handler is activated before the connection is closed when we manually close the connection. **NOTE** If both `OnClose` and `OnCloseCtx` are defined, `OnCloseCtx` will be used.
 
 
 ### (m)TLS connection
