@@ -300,7 +300,7 @@ func (c *Connection) close() error {
 		}
 	}
 
-	if c.Opts.ConnectionClosedHandlers != nil && len(c.Opts.ConnectionClosedHandlers) > 0 {
+	if len(c.Opts.ConnectionClosedHandlers) > 0 {
 		for _, handler := range c.Opts.ConnectionClosedHandlers {
 			go handler(c)
 		}
