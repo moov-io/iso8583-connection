@@ -454,7 +454,7 @@ func (c *Connection) Send(message *iso8583.Message, options ...Option) (*iso8583
 	return resp, err
 }
 
-func (c *Connection) writeMessage(w io.Writer, message *iso8583.Message) error {
+func (c *Connection) writeMessage(_ io.Writer, message *iso8583.Message) error {
 	if c.Opts.MessageWriter != nil {
 		err := c.Opts.MessageWriter.WriteMessage(c.conn, message)
 		if err != nil {
