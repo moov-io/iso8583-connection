@@ -44,8 +44,19 @@ func TestPool(t *testing.T) {
 		}
 	}()
 
+	var (
+		shouldFactoryFail atomic.Bool
+		factoryCalled     atomic.Int32
+	)
+
 	// And a factory method that will build connection for the pool
 	factory := func(addr string) (*connection.Connection, error) {
+		// increment factoryCalled counter
+		factoryCalled.Add(1)
+
+		if shouldFactoryFail.Load() {
+			return nil, fmt.Errorf("factory error")
+		}
 		// all our addresses have same configs, but if you need to use
 		// different TLS config, you can define config out of this
 		// function like:
@@ -136,6 +147,45 @@ func TestPool(t *testing.T) {
 		require.Eventually(t, func() bool {
 			return len(pool.Connections()) == connectionsCntBeforeServerShutdown-1
 		}, 500*time.Millisecond, 50*time.Millisecond, "expect to have one less connection")
+
+		// when we start server again
+		server, err := NewTestServerWithAddr(servers[0].Addr)
+		require.NoError(t, err)
+
+		// so we will not forget to close server on exit
+		servers[0] = server
+
+		// then we have one more connection (the same as it was before
+		// we shut down the server)
+		require.Eventually(t, func() bool {
+			return len(pool.Connections()) == connectionsCntBeforeServerShutdown
+		}, 2000*time.Millisecond, 50*time.Millisecond, "expect to have one less connection")
+	})
+
+	t.Run("connection factory returning error should not break the reconnect loop", func(t *testing.T) {
+		connectionsCntBeforeServerShutdown := len(pool.Connections())
+
+		// when we shutdown one of the servers
+		servers[0].Close()
+
+		// then we have one less connection
+		require.Eventually(t, func() bool {
+			return len(pool.Connections()) == connectionsCntBeforeServerShutdown-1
+		}, 500*time.Millisecond, 50*time.Millisecond, "expect to have one less connection")
+
+		// let factory return error
+		shouldFactoryFail.Store(true)
+
+		// reset factoryCalled counter
+		factoryCalled.Store(0)
+
+		// wait for the reconnect loop to call factory at least once
+		require.Eventually(t, func() bool {
+			return factoryCalled.Load() > 0
+		}, 1000*time.Millisecond, 50*time.Millisecond, "expect factory to be called at least once")
+
+		// stop returning error for factory
+		shouldFactoryFail.Store(false)
 
 		// when we start server again
 		server, err := NewTestServerWithAddr(servers[0].Addr)
