@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"sync"
@@ -1348,6 +1349,10 @@ func (m *messageIO) WriteMessage(w io.Writer, message *iso8583.Message) error {
 	}
 
 	// create header with message length
+	if len(rawMessage) > math.MaxUint16 {
+		return fmt.Errorf("message length is out of uint16 range: %d", len(rawMessage))
+	}
+	//nolint:gosec // disable G115 as it's a false positive
 	h := header{
 		Length: uint16(len(rawMessage)),
 	}
