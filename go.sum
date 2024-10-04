@@ -20,6 +20,8 @@ github.com/moov-io/iso8583 v0.21.2 h1:FHHbFXFOfEK9yA8siupnmUei77ZNB/74o4NsANu9me
 github.com/moov-io/iso8583 v0.21.2/go.mod h1:DePfPe8TCTrSUETPpMq1LQdfSuFj4qxZPkYyb9/cS7I=
 github.com/moov-io/iso8583 v0.22.0 h1:iFniftFGVfRtEHU2EtTQ2KzwNYlZrN6wiQmfwMwFPZE=
 github.com/moov-io/iso8583 v0.22.0/go.mod h1:seEv9uPMu6ESrBFLpMLXb4wpXg2iEeF4PIOzqpetbOA=
+github.com/moov-io/iso8583 v0.22.1 h1:cXQL/EbvOeQELbtvyYiyebCpUPdZWYA7vUIAZzRKUyo=
+github.com/moov-io/iso8583 v0.22.1/go.mod h1:fFiAUVfTJNGO98FVpisyA/RMjy1YeSnZs8EqzTeFYGc=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/stretchr/testify v1.8.4 h1:CcVxjf3Q8PM0mHUKJCdn+eZZtm5yQwehR5yeSVQQcUk=
@@ -35,6 +37,8 @@ golang.org/x/text v0.14.0 h1:ScX5w1eTa3QqT8oi6+ziP7dTV1S2+ALU0bI+0zXKWiQ=
 golang.org/x/text v0.14.0/go.mod h1:18ZOQIKpY8NJVqYksKHtTdi31H5itFRjB5/qKTNYzSU=
 golang.org/x/text v0.16.0 h1:a94ExnEXNtEwYLGJSIUxnWoxoRz/ZcCsV63ROupILh4=
 golang.org/x/text v0.16.0/go.mod h1:GhwF1Be+LQoKShO3cGOHzqOgRrGaYc9AvblQOmPVHnI=
+golang.org/x/text v0.17.0 h1:XtiM5bkSOt+ewxlOE/aE/AKEHibwj/6gvWMl9Rsh0Qc=
+golang.org/x/text v0.17.0/go.mod h1:BuEKDfySbSR4drPmRPG/7iBdf8hvFMuRexcpahXilzY=
 gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
 gopkg.in/check.v1 v1.0.0-20190902080502-41f04d3bba15 h1:YR8cESwS4TdDjEe65xsg0ogRM/Nc3DYOhEAlW+xobZo=
 gopkg.in/check.v1 v1.0.0-20190902080502-41f04d3bba15/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
