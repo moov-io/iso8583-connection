@@ -300,7 +300,7 @@ func (c *Connection) close() error {
 		}
 	}
 
-	if c.Opts.ConnectionClosedHandlers != nil && len(c.Opts.ConnectionClosedHandlers) > 0 {
+	if len(c.Opts.ConnectionClosedHandlers) > 0 {
 		for _, handler := range c.Opts.ConnectionClosedHandlers {
 			go handler(c)
 		}
@@ -454,7 +454,7 @@ func (c *Connection) Send(message *iso8583.Message, options ...Option) (*iso8583
 	return resp, err
 }
 
-func (c *Connection) writeMessage(w io.Writer, message *iso8583.Message) error {
+func (c *Connection) writeMessage(message *iso8583.Message) error {
 	if c.Opts.MessageWriter != nil {
 		err := c.Opts.MessageWriter.WriteMessage(c.conn, message)
 		if err != nil {
@@ -577,7 +577,7 @@ func (c *Connection) writeLoop() {
 				c.pendingRequestsMu.Unlock()
 			}
 
-			err = c.writeMessage(c.conn, req.message)
+			err = c.writeMessage(req.message)
 			if err != nil {
 				c.handleError(fmt.Errorf("writing message: %w", err))
 
