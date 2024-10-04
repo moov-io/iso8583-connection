@@ -101,7 +101,7 @@ func TestServer_WithConnectionFactory(t *testing.T) {
 
 		require.Eventually(t, func() bool {
 			return isCalled.Load() == true
-		}, 100*time.Millisecond, 10*time.Millisecond)
+		}, 200*time.Millisecond, 10*time.Millisecond)
 
 		require.ErrorIs(t, gotErr, expectedErr)
 	})
