@@ -92,8 +92,7 @@ func TestPool(t *testing.T) {
 		// Then pool builds and connects connections to all servers
 		require.Eventually(t, func() bool {
 			// we expect connectionsCnt counter to be incremented by both servers
-			//nolint:gosec // disable G115
-			return atomic.LoadInt32(&connectionsCnt) == int32(serversToStart)
+			return atomic.LoadInt32(&connectionsCnt) == int32(serversToStart) //nolint:gosec // disable G115 as it's a false positive
 		}, 500*time.Millisecond, 50*time.Millisecond, "%d expected connections established, but got %d", serversToStart, atomic.LoadInt32(&connectionsCnt))
 
 		// And pool has serversCnt connections
