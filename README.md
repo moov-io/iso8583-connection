@@ -26,10 +26,10 @@ Following options are supported:
 * IdleTime - sets the period of inactivity (no messages sent) after which a ping message will be sent to the server
 * ReadTimeout - sets the period of time to wait between reads before calling ReadTimeoutHandler 
 * PingHandler - called when no message was sent during idle time. It should be safe for concurrent use.
-* InboundMessageHandler - called when a message from the server is received or no matching request for the message was found. InboundMessageHandler must be safe to be called concurrenty.
+* InboundMessageHandler - called when a message from the server is received or no matching request for the message was found. InboundMessageHandler must be safe to be called concurrently.
 * ReadTimeoutHandler - called when no messages have been received during specified ReadTimeout wait time. It should be safe for concurrent use.
 * ConnectionClosedHandler - is called when connection is closed by us, by server or there were errors during network read/write that led to connection closure
-* ErrorHandler - is called with the error when connection fails to perform some operation. In some cases instance of a `SafeError` will be passed to prevent data leaks ([detalis](https://github.com/moov-io/iso8583/pull/185))
+* ErrorHandler - is called with the error when connection fails to perform some operation. In some cases instance of a `SafeError` will be passed to prevent data leaks ([details](https://github.com/moov-io/iso8583/pull/185))
 
 If you want to override default options, you can do this when creating instance of a client or setting it separately using `SetOptions(options...)` method.
 
@@ -334,7 +334,7 @@ PASS
 ok      github.com/moov-io/iso8583-connection   26.079s
 ```
 
-It shows that 53K messages were sent and recieved by both client and server in 1sec.
+It shows that 53K messages were sent and received by both client and server in 1sec.
 
 *BenchmarkProcessNNN*, where NNN is the number of messages to send, is another type of benchmark. In
 this benchmark, the we send and receive messages to the server concurrently by running NNN goroutines.
