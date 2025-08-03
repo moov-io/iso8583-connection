@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"sync"
 	"time"
 
@@ -641,8 +642,17 @@ func (c *Connection) readLoop() {
 
 	r := bufio.NewReader(c.conn)
 	for {
+
+		if dCon, ok := c.conn.(net.Conn); ok {
+			dCon.SetReadDeadline(time.Now().Add(1 * time.Second))
+		}
+
 		message, err := c.readMessage(r)
 		if err != nil {
+			if errors.Is(err, os.ErrDeadlineExceeded) {
+				continue
+			}
+
 			c.handleError(utils.NewSafeError(err, "failed to read message from connection"))
 
 			// if err is UnpackError, we can still continue reading
