@@ -331,6 +331,15 @@ func (c *Connection) Close() error {
 // CloseCtx waits for pending requests to complete and then closes network
 // connection with ISO 8583 server
 func (c *Connection) CloseCtx(ctx context.Context) error {
+	c.mutex.Lock()
+	// if we are closing already, just return
+	if c.closing {
+		c.mutex.Unlock()
+		return nil
+	}
+	c.closing = true
+	c.mutex.Unlock()
+
 	onClose := c.Opts.OnCloseCtx
 	if onClose == nil && c.Opts.OnClose != nil {
 		onClose = func(_ context.Context, c *Connection) error {
@@ -343,15 +352,6 @@ func (c *Connection) CloseCtx(ctx context.Context) error {
 			c.handleError(fmt.Errorf("on close callback: %w", err))
 		}
 	}
-
-	c.mutex.Lock()
-	// if we are closing already, just return
-	if c.closing {
-		c.mutex.Unlock()
-		return nil
-	}
-	c.closing = true
-	c.mutex.Unlock()
 
 	return c.close()
 }
