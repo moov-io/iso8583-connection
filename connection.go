@@ -102,7 +102,13 @@ type Connection struct {
 var _ io.Writer = (*Connection)(nil)
 
 // New creates and configures Connection. To establish network connection, call `Connect()`.
-func New(addr string, spec *iso8583.MessageSpec, mlReader MessageLengthReader, mlWriter MessageLengthWriter, options ...Option) (*Connection, error) {
+func New(
+	addr string,
+	spec *iso8583.MessageSpec,
+	mlReader MessageLengthReader,
+	mlWriter MessageLengthWriter,
+	options ...Option,
+) (*Connection, error) {
 	opts := GetDefaultOptions()
 	for _, opt := range options {
 		if err := opt(&opts); err != nil {
@@ -127,7 +133,13 @@ func New(addr string, spec *iso8583.MessageSpec, mlReader MessageLengthReader, m
 // NewFrom accepts conn (net.Conn, or any io.ReadWriteCloser) which will be
 // used as a transport for the returned Connection. Returned Connection is
 // ready to be used for message sending and receiving
-func NewFrom(conn io.ReadWriteCloser, spec *iso8583.MessageSpec, mlReader MessageLengthReader, mlWriter MessageLengthWriter, options ...Option) (*Connection, error) {
+func NewFrom(
+	conn io.ReadWriteCloser,
+	spec *iso8583.MessageSpec,
+	mlReader MessageLengthReader,
+	mlWriter MessageLengthWriter,
+	options ...Option,
+) (*Connection, error) {
 	c, err := New("", spec, mlReader, mlWriter, options...)
 	if err != nil {
 		return nil, fmt.Errorf("creating client: %w", err)
