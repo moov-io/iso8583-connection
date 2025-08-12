@@ -94,6 +94,8 @@ func TestServer_WithConnectionFactory(t *testing.T) {
 		err = conn.Connect()
 		require.NoError(t, err)
 
+		time.Sleep(50 * time.Millisecond) // give some time for the connection to be established
+
 		err = conn.Close()
 		require.NoError(t, err)
 
