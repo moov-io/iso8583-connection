@@ -201,11 +201,11 @@ func (c *Connection) ConnectCtx(ctx context.Context) error {
 
 	if onConnect != nil {
 		if err := onConnect(ctx, c); err != nil {
-			// close connection if OnConnect failed
-			// but ignore the potential error from Close()
-			// as it's a rare case
+			// we can do the hard close here by calling TriggerFailure
+			// If connection is not Online, pool will not return it and
+			// no one will be able to use it. The rest of the messages
+			// like echo, ping should be safe to terminate
 			c.TriggerFailure(fmt.Errorf("on connect callback %s: %w", c.addr, err))
-			// _ = c.CloseCtx(ctx)
 
 			return fmt.Errorf("on connect callback %s: %w", c.addr, err)
 		}

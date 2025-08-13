@@ -10,6 +10,7 @@ import (
 )
 
 var ErrNoConnections = errors.New("no connections (online)")
+var ErrPoolClosed = errors.New("pool is closed")
 
 type ConnectionFactoryFunc func(addr string) (*Connection, error)
 
@@ -85,7 +86,7 @@ func (p *Pool) ConnectCtx(ctx context.Context) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.isClosed {
-		return errors.New("pool is closed")
+		return ErrPoolClosed
 	}
 
 	// errors from initial connections creation
@@ -145,7 +146,7 @@ func (p *Pool) Get() (*Connection, error) {
 	p.mu.Lock()
 	if p.isClosed {
 		p.mu.Unlock()
-		return nil, errors.New("pool is closed")
+		return nil, ErrPoolClosed
 	}
 	p.mu.Unlock()
 
@@ -180,8 +181,9 @@ func (p *Pool) handleClosedConnection(closedConn *Connection, _ error) {
 	}
 
 	// somehow we didn't find closed connection in the pool
+	// most probably we failed to establish it and it was never added to the pool
 	if connIndex < 0 {
-		p.handleError(errors.New("closed connection was not found in the pool"))
+		p.handleError(errors.New("connection was not found in the pool"))
 		return
 	}
 
@@ -218,7 +220,9 @@ func (p *Pool) recreateConnection(closedConn *Connection) {
 		conn, err := p.Factory(closedConn.addr)
 		if err != nil {
 			p.handleError(fmt.Errorf("failed to re-create connection for %s: %w", closedConn.addr, err))
-			return
+
+			// we should continue the reconnect loop even if we failed to create connection
+			continue
 		}
 
 		// When connection is closed, remove it from the pool of connections and start
