@@ -31,6 +31,12 @@ type Options struct {
 	// The default is 60 seconds.
 	ReadTimeout time.Duration
 
+	// CloseTimeout is the maximum time to wait for a graceful
+	// connection of the underlying connection. If the connection
+	// is not closed within this time, it will be ignored and
+	// all handlers will be called.
+	CloseTimeout time.Duration
+
 	// PingHandler is called when no message was sent during idle time
 	// it should be safe for concurrent use
 	PingHandler func(c *Connection)
@@ -49,39 +55,44 @@ type Options struct {
 
 	// ConnectionClosedHandlers is called after connection is closed by us,
 	// by the server or when there are network errors during network
-	// read/write
+	// read/write.
 	ConnectionClosedHandlers []func(c *Connection)
 
-	// ConnectionFailedHandlers is called when a connection fails due to
-	// network issues, e.g. connection refused, connection reset by peer, etc.
-	// Each of these handlers will be called in a separate goroutine.
+	// ConnectionFailedHandlers is called only when a connection fails due
+	// to network issues, e.g. connection refused, connection reset by
+	// peer, etc. Each of these handlers will be called in a separate
+	// goroutine.
 	ConnectionFailedHandlers []ConnectionFailedHandler
 
 	// ConnectionEstablishedHandler is called when connection is
-	// established with the server
+	// established with the server, after successful OnConnect or
+	// OnConnectCtx execution. It's called in a separate goroutine
 	ConnectionEstablishedHandler func(c *Connection)
 
 	TLSConfig *tls.Config
 
 	// ErrorHandler is called in a goroutine with the errors that can't be
-	// returned to the caller
+	// returned to the caller. You can use this handler to log errors
 	ErrorHandler func(err error)
+
+	// OnConnectCtx is called synchronously when a connection is established.
+	// The purpose of the OnConnect handler is to gracefully handle the
+	// connection establishment, e.g. to send a sign-on message.
+	OnConnectCtx func(ctx context.Context, c *Connection) error
 
 	// If both OnConnect and OnConnectCtx are set, OnConnectCtx will be used
 	// OnConnect is called synchronously when a connection is established
 	OnConnect func(c *Connection) error
 
-	// OnConnectCtx is called synchronously when a connection is established
-	OnConnectCtx func(ctx context.Context, c *Connection) error
+	// OnCloseCtx is called synchronously before a connection is closed
+	// by us. It's not called when connection is closed by the other side
+	// or due to network issues. The purpose of the OnClose handler is to
+	// gracefully close the connection, e.g. to send sign-off message.
+	OnCloseCtx func(ctx context.Context, c *Connection) error
 
 	// If both OnClose and OnCloseCtx are set, OnCloseCtx will be used
 	// OnClose is called synchronously before a connection is closed
 	OnClose func(c *Connection) error
-
-	// OnCloseCtx is called synchronously before a connection is closed
-	// by us. It's not called when connection is closed by the other side
-	// or due to network issues.
-	OnCloseCtx func(ctx context.Context, c *Connection) error
 
 	// RequestIDGenerator is used to generate a unique identifier for a request
 	// so that responses from the server can be matched to the original request.
@@ -112,6 +123,7 @@ func GetDefaultOptions() Options {
 		SendTimeout:        30 * time.Second,
 		IdleTime:           5 * time.Second,
 		ReadTimeout:        60 * time.Second,
+		CloseTimeout:       5 * time.Second,
 		PingHandler:        nil,
 		TLSConfig:          nil,
 		RequestIDGenerator: &defaultRequestIDGenerator{},
@@ -322,6 +334,14 @@ func SetMessageReader(r MessageReader) Option {
 func SetMessageWriter(w MessageWriter) Option {
 	return func(o *Options) error {
 		o.MessageWriter = w
+		return nil
+	}
+}
+
+// WithCloseTimeout sets a CloseTimeout option
+func WithCloseTimeout(d time.Duration) Option {
+	return func(o *Options) error {
+		o.CloseTimeout = d
 		return nil
 	}
 }
