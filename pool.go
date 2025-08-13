@@ -218,7 +218,9 @@ func (p *Pool) recreateConnection(closedConn *Connection) {
 		conn, err := p.Factory(closedConn.addr)
 		if err != nil {
 			p.handleError(fmt.Errorf("failed to re-create connection for %s: %w", closedConn.addr, err))
-			return
+
+			// we should continue the reconnect loop even if we failed to create connection
+			continue
 		}
 
 		// When connection is closed, remove it from the pool of connections and start
