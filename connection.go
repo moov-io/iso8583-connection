@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"os"
 	"sync"
 	"time"
 
@@ -205,7 +204,8 @@ func (c *Connection) ConnectCtx(ctx context.Context) error {
 			// close connection if OnConnect failed
 			// but ignore the potential error from Close()
 			// as it's a rare case
-			_ = c.CloseCtx(ctx)
+			c.TriggerFailure(fmt.Errorf("on connect callback %s: %w", c.addr, err))
+			// _ = c.CloseCtx(ctx)
 
 			return fmt.Errorf("on connect callback %s: %w", c.addr, err)
 		}
@@ -312,7 +312,20 @@ func (c *Connection) close() error {
 	close(c.done)
 
 	if c.conn != nil {
-		err := c.conn.Close()
+		done := make(chan error)
+		go func() {
+			done <- c.conn.Close()
+		}()
+
+		var err error
+
+		ctx, cancel := context.WithTimeout(context.Background(), c.Opts.CloseTimeout)
+		defer cancel()
+		select {
+		case <-ctx.Done():
+			err = ctx.Err()
+		case err = <-done:
+		}
 		if err != nil {
 			return fmt.Errorf("closing connection: %w", err)
 		}
@@ -660,16 +673,8 @@ func (c *Connection) readLoop() {
 	r := bufio.NewReader(c.conn)
 	for {
 
-		if dCon, ok := c.conn.(net.Conn); ok {
-			dCon.SetReadDeadline(time.Now().Add(1 * time.Second))
-		}
-
 		message, err := c.readMessage(r)
 		if err != nil {
-			if errors.Is(err, os.ErrDeadlineExceeded) {
-				continue
-			}
-
 			c.handleError(utils.NewSafeError(err, "failed to read message from connection"))
 
 			// if err is UnpackError, we can still continue reading
