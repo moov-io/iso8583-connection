@@ -99,7 +99,7 @@ func (p *Pool) ConnectCtx(ctx context.Context) error {
 		}
 
 		// set own handler when connection is closed
-		conn.SetOptions(ConnectionClosedHandler(p.handleClosedConnection))
+		conn.SetOptions(WithConnectionFailedHandler(p.handleClosedConnection))
 
 		err = conn.ConnectCtx(ctx)
 		if err != nil {
@@ -163,7 +163,7 @@ func (p *Pool) Get() (*Connection, error) {
 
 // when connection is closed, remove it from the pool of connections and start
 // goroutine to create new connection for the same address
-func (p *Pool) handleClosedConnection(closedConn *Connection) {
+func (p *Pool) handleClosedConnection(closedConn *Connection, _ error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -223,7 +223,7 @@ func (p *Pool) recreateConnection(closedConn *Connection) {
 
 		// When connection is closed, remove it from the pool of connections and start
 		// recreate goroutine to create new connection for the same address
-		conn.SetOptions(ConnectionClosedHandler(p.handleClosedConnection))
+		conn.SetOptions(WithConnectionFailedHandler(p.handleClosedConnection))
 
 		// if we successfully reconnected, add connection to the pool and return
 		if err = conn.Connect(); err == nil {
@@ -291,13 +291,16 @@ func (p *Pool) Done() <-chan struct{} {
 
 // filteredConnections returns filtered connections
 func (p *Pool) filteredConnections() []*Connection {
-	if p.Opts.ConnectionsFilter == nil {
-		return p.Connections()
-	}
-
 	var conns []*Connection
+
 	for _, conn := range p.Connections() {
-		if p.Opts.ConnectionsFilter(conn) {
+		// if connection is not alive (not established, broken), skip it
+		if !conn.isAlive() {
+			continue
+		}
+
+		// if ConnectionsFilter is set, use it to filter connections
+		if p.Opts.ConnectionsFilter == nil || p.Opts.ConnectionsFilter(conn) {
 			conns = append(conns, conn)
 		}
 	}

@@ -52,6 +52,11 @@ type Options struct {
 	// read/write
 	ConnectionClosedHandlers []func(c *Connection)
 
+	// ConnectionFailedHandlers is called when a connection fails due to
+	// network issues, e.g. connection refused, connection reset by peer, etc.
+	// Each of these handlers will be called in a separate goroutine.
+	ConnectionFailedHandlers []ConnectionFailedHandler
+
 	// ConnectionEstablishedHandler is called when connection is
 	// established with the server
 	ConnectionEstablishedHandler func(c *Connection)
@@ -74,6 +79,8 @@ type Options struct {
 	OnClose func(c *Connection) error
 
 	// OnCloseCtx is called synchronously before a connection is closed
+	// by us. It's not called when connection is closed by the other side
+	// or due to network issues.
 	OnCloseCtx func(ctx context.Context, c *Connection) error
 
 	// RequestIDGenerator is used to generate a unique identifier for a request
@@ -163,6 +170,17 @@ func PingHandler(handler func(c *Connection)) Option {
 func ConnectionClosedHandler(handler func(c *Connection)) Option {
 	return func(o *Options) error {
 		o.ConnectionClosedHandlers = append(o.ConnectionClosedHandlers, handler)
+		return nil
+	}
+}
+
+// ConnectionFailedHandler is a function that will be called when a connection fails due to network issues
+type ConnectionFailedHandler func(*Connection, error)
+
+// WithConnectionFailedHandler sets a ConnectionFailedHandler option. Each handler will be called
+func WithConnectionFailedHandler(handler ConnectionFailedHandler) Option {
+	return func(o *Options) error {
+		o.ConnectionFailedHandlers = append(o.ConnectionFailedHandlers, handler)
 		return nil
 	}
 }

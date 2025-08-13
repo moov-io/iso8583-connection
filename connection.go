@@ -92,7 +92,8 @@ type Connection struct {
 	// to protect following: closing, status
 	mutex sync.Mutex
 
-	// user has called Close
+	// user has called Close or we are closing connection due to an error
+	// once closing is set to true, connection is unusable
 	closing bool
 
 	// connection status
@@ -144,7 +145,9 @@ func NewFrom(
 	if err != nil {
 		return nil, fmt.Errorf("creating client: %w", err)
 	}
+
 	c.conn = conn
+
 	c.run()
 	return c, nil
 }
@@ -243,6 +246,7 @@ func (c *Connection) run() {
 	go c.readResponseLoop()
 }
 
+// handleError is used to track errors that happen during message reading or writing
 func (c *Connection) handleError(err error) {
 	if c.Opts.ErrorHandler == nil {
 		return
@@ -270,8 +274,12 @@ func (c *Connection) handleConnectionError(err error) {
 	c.closing = true
 	c.mutex.Unlock()
 
-	// channel to wait for all goroutines to exit
-	done := make(chan bool)
+	// first, notify all handlers that connection is closed due to an error
+	if len(c.Opts.ConnectionFailedHandlers) > 0 {
+		for _, handler := range c.Opts.ConnectionFailedHandlers {
+			go handler(c, err)
+		}
+	}
 
 	c.pendingRequestsMu.Lock()
 	for _, resp := range c.respMap {
@@ -279,21 +287,18 @@ func (c *Connection) handleConnectionError(err error) {
 	}
 	c.pendingRequestsMu.Unlock()
 
-	// return error to all Send methods
+	// Drain requestsCh in background (will stop when c.done closes - which will happen
+	// when no more requests are sent to the connection). All requests will receive
+	// ErrConnectionClosed error.
 	go func() {
 		for {
 			select {
 			case req := <-c.requestsCh:
 				req.errCh <- ErrConnectionClosed
-			case <-done:
+			case <-c.done:
 				return
 			}
 		}
-	}()
-
-	go func() {
-		c.wg.Wait()
-		done <- true
 	}()
 
 	// close everything else we close normally
@@ -391,6 +396,17 @@ type response struct {
 //
 //	conn.Send(msg, connection.SendTimeout(5 * time.Second))
 func (c *Connection) Send(message *iso8583.Message, options ...Option) (*iso8583.Message, error) {
+	c.mutex.Lock()
+	if c.closing {
+		c.mutex.Unlock()
+		return nil, ErrConnectionClosed
+	}
+	// calling wg.Add(1) within mutex guarantees that it does not pass the wg.Wait() call in the Close method
+	// otherwise we will have data race issue
+	c.wg.Add(1)
+	c.mutex.Unlock()
+	defer c.wg.Done()
+
 	// use the SendTimeout from the connection options
 	sendTimeout := c.Opts.SendTimeout
 
@@ -408,17 +424,6 @@ func (c *Connection) Send(message *iso8583.Message, options ...Option) (*iso8583
 
 		sendTimeout = opts.SendTimeout
 	}
-
-	c.mutex.Lock()
-	if c.closing {
-		c.mutex.Unlock()
-		return nil, ErrConnectionClosed
-	}
-	// calling wg.Add(1) within mutex guarantees that it does not pass the wg.Wait() call in the Close method
-	// otherwise we will have data race issue
-	c.wg.Add(1)
-	c.mutex.Unlock()
-	defer c.wg.Done()
 
 	// prepare request
 	reqID, err := c.Opts.RequestIDGenerator.GenerateRequestID(message)
@@ -815,4 +820,19 @@ func (c *Connection) RejectMessage(rejectedMessage *iso8583.Message, rejectionEr
 	response.errCh <- &RejectedMessageError{Err: rejectionError}
 
 	return nil
+}
+
+// TriggerFailure is used to trigger connection failure manually. It will notify
+// all ConnectionFailedHandlers and close the connection.
+func (c *Connection) TriggerFailure(reason error) {
+	c.handleConnectionError(reason)
+}
+
+// isAlive checks if the connection is alive. Currently, it is used to
+// filter out connections that are closing or closed in the pool.
+func (c *Connection) isAlive() bool {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	return !c.closing
 }
