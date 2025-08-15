@@ -31,12 +31,6 @@ type Options struct {
 	// The default is 60 seconds.
 	ReadTimeout time.Duration
 
-	// CloseTimeout is the maximum time to wait for a graceful
-	// connection of the underlying connection. If the connection
-	// is not closed within this time, it will be ignored and
-	// all handlers will be called.
-	CloseTimeout time.Duration
-
 	// PingHandler is called when no message was sent during idle time
 	// it should be safe for concurrent use
 	PingHandler func(c *Connection)
@@ -123,7 +117,6 @@ func GetDefaultOptions() Options {
 		SendTimeout:        30 * time.Second,
 		IdleTime:           5 * time.Second,
 		ReadTimeout:        60 * time.Second,
-		CloseTimeout:       5 * time.Second,
 		PingHandler:        nil,
 		TLSConfig:          nil,
 		RequestIDGenerator: &defaultRequestIDGenerator{},
@@ -334,14 +327,6 @@ func SetMessageReader(r MessageReader) Option {
 func SetMessageWriter(w MessageWriter) Option {
 	return func(o *Options) error {
 		o.MessageWriter = w
-		return nil
-	}
-}
-
-// WithCloseTimeout sets a CloseTimeout option
-func WithCloseTimeout(d time.Duration) Option {
-	return func(o *Options) error {
-		o.CloseTimeout = d
 		return nil
 	}
 }
