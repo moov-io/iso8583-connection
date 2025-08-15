@@ -312,23 +312,7 @@ func (c *Connection) close() error {
 	close(c.done)
 
 	if c.conn != nil {
-		done := make(chan error)
-		go func() {
-			done <- c.conn.Close()
-		}()
-
-		var err error
-
-		ctx, cancel := context.WithTimeout(context.Background(), c.Opts.CloseTimeout)
-		defer cancel()
-		select {
-		case <-ctx.Done():
-			err = ctx.Err()
-		case err = <-done:
-		}
-		if err != nil {
-			return fmt.Errorf("closing connection: %w", err)
-		}
+		c.closeConn()
 	}
 
 	if len(c.Opts.ConnectionClosedHandlers) > 0 {
@@ -338,6 +322,29 @@ func (c *Connection) close() error {
 	}
 
 	return nil
+}
+
+func (c *Connection) closeConn() {
+	t := time.AfterFunc(250*time.Millisecond, c.forceCloseConn)
+	defer t.Stop()
+	c.conn.Close()
+}
+
+// A tls.Conn.Close can hang for a long time if the peer is unresponsive.
+// Try to shut it down more aggressively. This bypasses the TLS protocol
+// entirely and forcibly closes the underlying TCP connection. The kernel will
+// send a TCP RST, immediately terminating the connection without waiting for
+// TLS handshake completion.
+// taken from here:
+// https://github.com/golang/go/blob/3bea95b2778312dd733c0f13fe9ec20bd2bf2d13/src/net/http/h2_bundle.go#L8424
+func (c *Connection) forceCloseConn() {
+	tc, ok := c.conn.(*tls.Conn)
+	if !ok {
+		return
+	}
+	if nc := tc.NetConn(); nc != nil {
+		nc.Close()
+	}
 }
 
 // Close waits for pending requests to complete and then closes network
