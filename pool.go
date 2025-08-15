@@ -180,10 +180,10 @@ func (p *Pool) handleClosedConnection(closedConn *Connection, _ error) {
 		}
 	}
 
-	// somehow we didn't find closed connection in the pool
-	// most probably we failed to establish it and it was never added to the pool
+	// do nothing if connection wasn't found in the pool
+	// connection either wasn't added to the pool or was already removed from the pool
+	// and connection is in the process of being recreated
 	if connIndex < 0 {
-		p.handleError(errors.New("connection was not found in the pool"))
 		return
 	}
 
