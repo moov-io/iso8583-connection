@@ -325,7 +325,7 @@ func (c *Connection) close() error {
 }
 
 func (c *Connection) closeConn() {
-	t := time.AfterFunc(250*time.Millisecond, c.forceCloseConn)
+	t := time.AfterFunc(500*time.Millisecond, c.forceCloseConn)
 	defer t.Stop()
 	c.conn.Close()
 }
