@@ -171,12 +171,17 @@ func PingHandler(handler func(c *Connection)) Option {
 	}
 }
 
-// ConnectionClosedHandler sets a ConnectionClosedHandler option
-func ConnectionClosedHandler(handler func(c *Connection)) Option {
+// WithConnectionClosedHandler sets a ConnectionClosedHandler option.
+func WithConnectionClosedHandler(handler func(c *Connection)) Option {
 	return func(o *Options) error {
 		o.ConnectionClosedHandlers = append(o.ConnectionClosedHandlers, handler)
 		return nil
 	}
+}
+
+// ConnectionClosedHandler sets a ConnectionClosedHandler option
+func ConnectionClosedHandler(handler func(c *Connection)) Option {
+	return WithConnectionClosedHandler(handler)
 }
 
 // ConnectionFailedHandler is a function that will be called when a connection fails due to network issues

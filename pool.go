@@ -100,7 +100,7 @@ func (p *Pool) ConnectCtx(ctx context.Context) error {
 		}
 
 		// set own handler when connection is closed
-		conn.SetOptions(WithConnectionFailedHandler(p.handleClosedConnection))
+		conn.SetOptions(WithConnectionClosedHandler(p.handleClosedConnection))
 
 		err = conn.ConnectCtx(ctx)
 		if err != nil {
@@ -164,7 +164,7 @@ func (p *Pool) Get() (*Connection, error) {
 
 // when connection is closed, remove it from the pool of connections and start
 // goroutine to create new connection for the same address
-func (p *Pool) handleClosedConnection(closedConn *Connection, _ error) {
+func (p *Pool) handleClosedConnection(closedConn *Connection) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -227,7 +227,7 @@ func (p *Pool) recreateConnection(closedConn *Connection) {
 
 		// When connection is closed, remove it from the pool of connections and start
 		// recreate goroutine to create new connection for the same address
-		conn.SetOptions(WithConnectionFailedHandler(p.handleClosedConnection))
+		conn.SetOptions(WithConnectionClosedHandler(p.handleClosedConnection))
 
 		// if we successfully reconnected, add connection to the pool and return
 		if err = conn.Connect(); err == nil {
