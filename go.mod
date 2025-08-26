@@ -2,11 +2,11 @@ module github.com/moov-io/iso8583-connection
 
 go 1.23.0
 
-toolchain go1.24.6
+toolchain go1.25.0
 
 require (
 	github.com/moov-io/iso8583 v0.23.4
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.0
 )
 
 require (
