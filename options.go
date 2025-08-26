@@ -49,32 +49,44 @@ type Options struct {
 
 	// ConnectionClosedHandlers is called after connection is closed by us,
 	// by the server or when there are network errors during network
-	// read/write
+	// read/write.
 	ConnectionClosedHandlers []func(c *Connection)
 
+	// ConnectionFailedHandlers is called only when a connection fails due
+	// to network issues, e.g. connection refused, connection reset by
+	// peer, etc. Each of these handlers will be called in a separate
+	// goroutine.
+	ConnectionFailedHandlers []ConnectionFailedHandler
+
 	// ConnectionEstablishedHandler is called when connection is
-	// established with the server
+	// established with the server, after successful OnConnect or
+	// OnConnectCtx execution. It's called in a separate goroutine
 	ConnectionEstablishedHandler func(c *Connection)
 
 	TLSConfig *tls.Config
 
 	// ErrorHandler is called in a goroutine with the errors that can't be
-	// returned to the caller
+	// returned to the caller. You can use this handler to log errors
 	ErrorHandler func(err error)
+
+	// OnConnectCtx is called synchronously when a connection is established.
+	// The purpose of the OnConnect handler is to gracefully handle the
+	// connection establishment, e.g. to send a sign-on message.
+	OnConnectCtx func(ctx context.Context, c *Connection) error
 
 	// If both OnConnect and OnConnectCtx are set, OnConnectCtx will be used
 	// OnConnect is called synchronously when a connection is established
 	OnConnect func(c *Connection) error
 
-	// OnConnectCtx is called synchronously when a connection is established
-	OnConnectCtx func(ctx context.Context, c *Connection) error
+	// OnCloseCtx is called synchronously before a connection is closed
+	// by us. It's not called when connection is closed by the other side
+	// or due to network issues. The purpose of the OnClose handler is to
+	// gracefully close the connection, e.g. to send sign-off message.
+	OnCloseCtx func(ctx context.Context, c *Connection) error
 
 	// If both OnClose and OnCloseCtx are set, OnCloseCtx will be used
 	// OnClose is called synchronously before a connection is closed
 	OnClose func(c *Connection) error
-
-	// OnCloseCtx is called synchronously before a connection is closed
-	OnCloseCtx func(ctx context.Context, c *Connection) error
 
 	// RequestIDGenerator is used to generate a unique identifier for a request
 	// so that responses from the server can be matched to the original request.
@@ -159,10 +171,26 @@ func PingHandler(handler func(c *Connection)) Option {
 	}
 }
 
-// ConnectionClosedHandler sets a ConnectionClosedHandler option
-func ConnectionClosedHandler(handler func(c *Connection)) Option {
+// WithConnectionClosedHandler sets a ConnectionClosedHandler option.
+func WithConnectionClosedHandler(handler func(c *Connection)) Option {
 	return func(o *Options) error {
 		o.ConnectionClosedHandlers = append(o.ConnectionClosedHandlers, handler)
+		return nil
+	}
+}
+
+// ConnectionClosedHandler sets a ConnectionClosedHandler option
+func ConnectionClosedHandler(handler func(c *Connection)) Option {
+	return WithConnectionClosedHandler(handler)
+}
+
+// ConnectionFailedHandler is a function that will be called when a connection fails due to network issues
+type ConnectionFailedHandler func(*Connection, error)
+
+// WithConnectionFailedHandler sets a ConnectionFailedHandler option. Each handler will be called
+func WithConnectionFailedHandler(handler ConnectionFailedHandler) Option {
+	return func(o *Options) error {
+		o.ConnectionFailedHandlers = append(o.ConnectionFailedHandlers, handler)
 		return nil
 	}
 }

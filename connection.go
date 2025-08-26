@@ -91,7 +91,8 @@ type Connection struct {
 	// to protect following: closing, status
 	mutex sync.Mutex
 
-	// user has called Close
+	// user has called Close or we are closing connection due to an error
+	// once closing is set to true, connection is unusable
 	closing bool
 
 	// connection status
@@ -101,7 +102,13 @@ type Connection struct {
 var _ io.Writer = (*Connection)(nil)
 
 // New creates and configures Connection. To establish network connection, call `Connect()`.
-func New(addr string, spec *iso8583.MessageSpec, mlReader MessageLengthReader, mlWriter MessageLengthWriter, options ...Option) (*Connection, error) {
+func New(
+	addr string,
+	spec *iso8583.MessageSpec,
+	mlReader MessageLengthReader,
+	mlWriter MessageLengthWriter,
+	options ...Option,
+) (*Connection, error) {
 	opts := GetDefaultOptions()
 	for _, opt := range options {
 		if err := opt(&opts); err != nil {
@@ -126,12 +133,20 @@ func New(addr string, spec *iso8583.MessageSpec, mlReader MessageLengthReader, m
 // NewFrom accepts conn (net.Conn, or any io.ReadWriteCloser) which will be
 // used as a transport for the returned Connection. Returned Connection is
 // ready to be used for message sending and receiving
-func NewFrom(conn io.ReadWriteCloser, spec *iso8583.MessageSpec, mlReader MessageLengthReader, mlWriter MessageLengthWriter, options ...Option) (*Connection, error) {
+func NewFrom(
+	conn io.ReadWriteCloser,
+	spec *iso8583.MessageSpec,
+	mlReader MessageLengthReader,
+	mlWriter MessageLengthWriter,
+	options ...Option,
+) (*Connection, error) {
 	c, err := New("", spec, mlReader, mlWriter, options...)
 	if err != nil {
 		return nil, fmt.Errorf("creating client: %w", err)
 	}
+
 	c.conn = conn
+
 	c.run()
 	return c, nil
 }
@@ -186,10 +201,11 @@ func (c *Connection) ConnectCtx(ctx context.Context) error {
 
 	if onConnect != nil {
 		if err := onConnect(ctx, c); err != nil {
-			// close connection if OnConnect failed
-			// but ignore the potential error from Close()
-			// as it's a rare case
-			_ = c.CloseCtx(ctx)
+			// we can do the hard close here by calling TriggerFailure
+			// If connection is not Online, pool will not return it and
+			// no one will be able to use it. The rest of the messages
+			// like echo, ping should be safe to terminate
+			c.TriggerFailure(fmt.Errorf("on connect callback %s: %w", c.addr, err))
 
 			return fmt.Errorf("on connect callback %s: %w", c.addr, err)
 		}
@@ -230,6 +246,7 @@ func (c *Connection) run() {
 	go c.readResponseLoop()
 }
 
+// handleError is used to track errors that happen during message reading or writing
 func (c *Connection) handleError(err error) {
 	if c.Opts.ErrorHandler == nil {
 		return
@@ -257,8 +274,12 @@ func (c *Connection) handleConnectionError(err error) {
 	c.closing = true
 	c.mutex.Unlock()
 
-	// channel to wait for all goroutines to exit
-	done := make(chan bool)
+	// first, notify all handlers that connection is closed due to an error
+	if len(c.Opts.ConnectionFailedHandlers) > 0 {
+		for _, handler := range c.Opts.ConnectionFailedHandlers {
+			go handler(c, err)
+		}
+	}
 
 	c.pendingRequestsMu.Lock()
 	for _, resp := range c.respMap {
@@ -266,21 +287,18 @@ func (c *Connection) handleConnectionError(err error) {
 	}
 	c.pendingRequestsMu.Unlock()
 
-	// return error to all Send methods
+	// Drain requestsCh in background (will stop when c.done closes - which will happen
+	// when no more requests are sent to the connection). All requests will receive
+	// ErrConnectionClosed error.
 	go func() {
 		for {
 			select {
 			case req := <-c.requestsCh:
 				req.errCh <- ErrConnectionClosed
-			case <-done:
+			case <-c.done:
 				return
 			}
 		}
-	}()
-
-	go func() {
-		c.wg.Wait()
-		done <- true
 	}()
 
 	// close everything else we close normally
@@ -294,10 +312,7 @@ func (c *Connection) close() error {
 	close(c.done)
 
 	if c.conn != nil {
-		err := c.conn.Close()
-		if err != nil {
-			return fmt.Errorf("closing connection: %w", err)
-		}
+		c.closeConn()
 	}
 
 	if len(c.Opts.ConnectionClosedHandlers) > 0 {
@@ -309,6 +324,29 @@ func (c *Connection) close() error {
 	return nil
 }
 
+func (c *Connection) closeConn() {
+	t := time.AfterFunc(500*time.Millisecond, c.forceCloseConn)
+	defer t.Stop()
+	c.conn.Close()
+}
+
+// A tls.Conn.Close can hang for a long time if the peer is unresponsive.
+// Try to shut it down more aggressively. This bypasses the TLS protocol
+// entirely and forcibly closes the underlying TCP connection. The kernel will
+// send a TCP RST, immediately terminating the connection without waiting for
+// TLS handshake completion.
+// taken from here:
+// https://github.com/golang/go/blob/3bea95b2778312dd733c0f13fe9ec20bd2bf2d13/src/net/http/h2_bundle.go#L8424
+func (c *Connection) forceCloseConn() {
+	tc, ok := c.conn.(*tls.Conn)
+	if !ok {
+		return
+	}
+	if nc := tc.NetConn(); nc != nil {
+		nc.Close()
+	}
+}
+
 // Close waits for pending requests to complete and then closes network
 // connection with ISO 8583 server
 func (c *Connection) Close() error {
@@ -318,6 +356,15 @@ func (c *Connection) Close() error {
 // CloseCtx waits for pending requests to complete and then closes network
 // connection with ISO 8583 server
 func (c *Connection) CloseCtx(ctx context.Context) error {
+	c.mutex.Lock()
+	// if we are closing already, just return
+	if c.closing {
+		c.mutex.Unlock()
+		return nil
+	}
+	c.closing = true
+	c.mutex.Unlock()
+
 	onClose := c.Opts.OnCloseCtx
 	if onClose == nil && c.Opts.OnClose != nil {
 		onClose = func(_ context.Context, c *Connection) error {
@@ -330,15 +377,6 @@ func (c *Connection) CloseCtx(ctx context.Context) error {
 			c.handleError(fmt.Errorf("on close callback: %w", err))
 		}
 	}
-
-	c.mutex.Lock()
-	// if we are closing already, just return
-	if c.closing {
-		c.mutex.Unlock()
-		return nil
-	}
-	c.closing = true
-	c.mutex.Unlock()
 
 	return c.close()
 }
@@ -378,6 +416,17 @@ type response struct {
 //
 //	conn.Send(msg, connection.SendTimeout(5 * time.Second))
 func (c *Connection) Send(message *iso8583.Message, options ...Option) (*iso8583.Message, error) {
+	c.mutex.Lock()
+	if c.closing {
+		c.mutex.Unlock()
+		return nil, ErrConnectionClosed
+	}
+	// calling wg.Add(1) within mutex guarantees that it does not pass the wg.Wait() call in the Close method
+	// otherwise we will have data race issue
+	c.wg.Add(1)
+	c.mutex.Unlock()
+	defer c.wg.Done()
+
 	// use the SendTimeout from the connection options
 	sendTimeout := c.Opts.SendTimeout
 
@@ -395,17 +444,6 @@ func (c *Connection) Send(message *iso8583.Message, options ...Option) (*iso8583
 
 		sendTimeout = opts.SendTimeout
 	}
-
-	c.mutex.Lock()
-	if c.closing {
-		c.mutex.Unlock()
-		return nil, ErrConnectionClosed
-	}
-	// calling wg.Add(1) within mutex guarantees that it does not pass the wg.Wait() call in the Close method
-	// otherwise we will have data race issue
-	c.wg.Add(1)
-	c.mutex.Unlock()
-	defer c.wg.Done()
 
 	// prepare request
 	reqID, err := c.Opts.RequestIDGenerator.GenerateRequestID(message)
@@ -641,6 +679,7 @@ func (c *Connection) readLoop() {
 
 	r := bufio.NewReader(c.conn)
 	for {
+
 		message, err := c.readMessage(r)
 		if err != nil {
 			c.handleError(utils.NewSafeError(err, "failed to read message from connection"))
@@ -793,4 +832,19 @@ func (c *Connection) RejectMessage(rejectedMessage *iso8583.Message, rejectionEr
 	response.errCh <- &RejectedMessageError{Err: rejectionError}
 
 	return nil
+}
+
+// TriggerFailure is used to trigger connection failure manually. It will notify
+// all ConnectionFailedHandlers and close the connection.
+func (c *Connection) TriggerFailure(reason error) {
+	c.handleConnectionError(reason)
+}
+
+// isAlive checks if the connection is alive. Currently, it is used to
+// filter out connections that are closing or closed in the pool.
+func (c *Connection) isAlive() bool {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	return !c.closing
 }
