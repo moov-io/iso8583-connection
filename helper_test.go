@@ -139,53 +139,55 @@ func NewTestServerWithAddr(addr string) (*testServer, error) {
 		newMTI := "0810"
 		message.MTI(newMTI)
 
-		// check if PAN was set to specific test case value
-		f2 := message.GetField(2)
-		if f2 != nil {
-			code, err := f2.String()
+		// check if field 2 was set to a specific test case value.
+		// iso8583 v0.25+ returns nil from GetField for unset fields.
+		code := ""
+		if f2 := message.GetField(2); f2 != nil {
+			var err error
+			code, err = f2.String()
 			if err != nil {
 				log.Printf("getting field 2: %s", err.Error())
 				return
 			}
+		}
 
-			switch code {
-			case TestCaseDelayedResponse:
-				// testing value to "sleep" for a 500ms
-				time.Sleep(5000 * time.Millisecond)
-				c.Reply(message)
-			case TestCaseSameSTANRequest:
-				// here we will send message to the client with
-				// the same STAN
-				stan, _ := message.GetString(11)
-				incomingMessage := iso8583.NewMessage(testSpec)
-				incomingMessage.MTI("0800")
-				incomingMessage.Field(11, stan)
+		switch code {
+		case TestCaseDelayedResponse:
+			// testing value to "sleep" for a 500ms
+			time.Sleep(500 * time.Millisecond)
+			c.Reply(message)
+		case TestCaseSameSTANRequest:
+			// here we will send message to the client with
+			// the same STAN
+			stan, _ := message.GetString(11)
+			incomingMessage := iso8583.NewMessage(testSpec)
+			incomingMessage.MTI("0800")
+			incomingMessage.Field(11, stan)
 
-				_, err := c.Send(incomingMessage)
-				if err != nil {
-					log.Printf("sending message to client: %s", err.Error())
-				}
-				// and then delay the reply
-				time.Sleep(200 * time.Millisecond)
-				c.Reply(message)
-			case TestCasePingCounter:
-				// ping request received
-				srv.Ping()
-				c.Reply(message)
-			case TestCaseCloseConnection:
-				// reply
-				c.Reply(message)
-				// let client receive reply
-				time.Sleep(50 * time.Millisecond)
-				c.Close()
-			case TestCaseReply:
-				c.Reply(message)
-			case TestCaseRespondWithExtraField:
-				message.Field(63, "EXTRA")
-				c.Reply(message)
-			default:
-				c.Reply(message)
+			_, err := c.Send(incomingMessage)
+			if err != nil {
+				log.Printf("sending message to client: %s", err.Error())
 			}
+			// and then delay the reply
+			time.Sleep(200 * time.Millisecond)
+			c.Reply(message)
+		case TestCasePingCounter:
+			// ping request received
+			srv.Ping()
+			c.Reply(message)
+		case TestCaseCloseConnection:
+			// reply
+			c.Reply(message)
+			// let client receive reply
+			time.Sleep(50 * time.Millisecond)
+			c.Close()
+		case TestCaseReply:
+			c.Reply(message)
+		case TestCaseRespondWithExtraField:
+			message.Field(63, "EXTRA")
+			c.Reply(message)
+		default:
+			c.Reply(message)
 		}
 	}
 
