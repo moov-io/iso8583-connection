@@ -473,7 +473,7 @@ func TestClient_Send(t *testing.T) {
 			var unpackErr *iso8583Errors.UnpackError
 			if errors.As(handledError, &unpackErr) {
 				require.EqualError(t, handledError, "failed to read message from connection")
-				require.EqualError(t, unpackErr, "failed to unpack field 63: no specification found")
+				require.EqualError(t, unpackErr, "creating field 63: field 63 is not defined in the spec")
 				require.NotEmpty(t, unpackErr.RawMessage)
 				return true
 			}
