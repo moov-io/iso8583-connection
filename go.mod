@@ -2,7 +2,7 @@ module github.com/moov-io/iso8583-connection
 
 go 1.25.0
 
-toolchain go1.27.0
+toolchain go1.27.1
 
 require (
 	github.com/moov-io/iso8583 v0.26.1
