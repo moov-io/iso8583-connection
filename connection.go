@@ -88,11 +88,13 @@ type Connection struct {
 	// WaitGroup to wait for all Send calls to finish
 	wg sync.WaitGroup
 
-	// to protect following: closing, status
+	// to protect following: closeInitiated, closing, status
 	mutex sync.Mutex
 
-	// user has called Close or we are closing connection due to an error
-	// once closing is set to true, connection is unusable
+	// graceful close has been initiated; prevents repeated OnClose calls
+	closeInitiated bool
+
+	// connection is shutting down; new Send and Reply calls return ErrConnectionClosed
 	closing bool
 
 	// connection status
@@ -358,11 +360,11 @@ func (c *Connection) Close() error {
 func (c *Connection) CloseCtx(ctx context.Context) error {
 	c.mutex.Lock()
 	// if we are closing already, just return
-	if c.closing {
+	if c.closeInitiated || c.closing {
 		c.mutex.Unlock()
 		return nil
 	}
-	c.closing = true
+	c.closeInitiated = true
 	c.mutex.Unlock()
 
 	onClose := c.Opts.OnCloseCtx
@@ -377,6 +379,15 @@ func (c *Connection) CloseCtx(ctx context.Context) error {
 			c.handleError(fmt.Errorf("on close callback: %w", err))
 		}
 	}
+
+	c.mutex.Lock()
+	if c.closing {
+		// The connection failed while OnClose was running and is already closing.
+		c.mutex.Unlock()
+		return nil
+	}
+	c.closing = true
+	c.mutex.Unlock()
 
 	return c.close()
 }
