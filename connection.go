@@ -382,9 +382,14 @@ func (c *Connection) CloseCtx(ctx context.Context) error {
 
 	c.mutex.Lock()
 	if c.closing {
-		// The connection failed while OnClose was running and is already closing.
+		// Failure handling owns teardown; wait for pending requests to finish.
 		c.mutex.Unlock()
-		return nil
+		select {
+		case <-c.Done():
+			return nil
+		case <-ctx.Done():
+			return fmt.Errorf("waiting for connection shutdown: %w", ctx.Err())
+		}
 	}
 	c.closing = true
 	c.mutex.Unlock()
