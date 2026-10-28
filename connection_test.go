@@ -15,13 +15,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/moov-io/iso8583"
 	connection "github.com/moov-io/iso8583-connection"
 	"github.com/moov-io/iso8583/encoding"
 	iso8583Errors "github.com/moov-io/iso8583/errors"
 	"github.com/moov-io/iso8583/field"
 	"github.com/moov-io/iso8583/prefix"
-	"github.com/stretchr/testify/require"
 )
 
 type baseFields struct {
@@ -258,6 +259,264 @@ func TestClient_Connect(t *testing.T) {
 		require.Eventually(t, func() bool {
 			return atomic.LoadInt32(&onClosedCalled) == 1
 		}, 100*time.Millisecond, 20*time.Millisecond, "onClose should be called")
+		require.Eventually(t, func() bool {
+			return atomic.LoadInt32(&onErrCalled) == 1
+		}, time.Second, 20*time.Millisecond, "onClose error should be reported")
+	})
+}
+
+func TestClient_Close(t *testing.T) {
+	requireConnectionClosed := func(t *testing.T, c *connection.Connection) {
+		t.Helper()
+
+		select {
+		case <-c.Done():
+		case <-time.After(time.Second):
+			t.Fatal("connection did not close")
+		}
+	}
+
+	t.Run("OnClose can send on the connection", func(t *testing.T) {
+		server, err := NewTestServer()
+		require.NoError(t, err)
+		t.Cleanup(server.Close)
+
+		message := iso8583.NewMessage(testSpec)
+		require.NoError(t, message.Marshal(baseFields{
+			MTI:          field.NewStringValue("0800"),
+			TestCaseCode: field.NewStringValue(TestCaseReply),
+			STAN:         field.NewStringValue(getSTAN()),
+		}))
+
+		var (
+			response *iso8583.Message
+			sendErr  error
+		)
+		c, err := connection.New(server.Addr, testSpec, readMessageLength, writeMessageLength,
+			connection.OnCloseCtx(func(_ context.Context, c *connection.Connection) error {
+				response, sendErr = c.Send(message)
+				return sendErr
+			}),
+		)
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, c.Close()) })
+		require.NoError(t, c.Connect())
+
+		require.NoError(t, c.Close())
+		require.NoError(t, sendErr)
+		require.NotNil(t, response)
+
+		mti, err := response.GetMTI()
+		require.NoError(t, err)
+		require.Equal(t, "0810", mti)
+
+		requireConnectionClosed(t, c)
+	})
+
+	t.Run("Close called twice runs OnClose once", func(t *testing.T) {
+		entered := make(chan struct{}, 2)
+		release := make(chan struct{})
+		releaseOnClose := sync.OnceFunc(func() { close(release) })
+
+		var calls atomic.Int32
+		c, err := connection.New("", testSpec, readMessageLength, writeMessageLength,
+			connection.OnClose(func(_ *connection.Connection) error {
+				calls.Add(1)
+				entered <- struct{}{}
+				<-release
+				return nil
+			}),
+		)
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, c.Close()) })
+		t.Cleanup(releaseOnClose)
+
+		results := make(chan error, 2)
+		go func() { results <- c.Close() }()
+		select {
+		case <-entered:
+		case <-time.After(time.Second):
+			t.Fatal("OnClose was not called")
+		}
+		go func() { results <- c.Close() }()
+
+		select {
+		case err := <-results:
+			require.NoError(t, err)
+		case <-time.After(time.Second):
+			t.Fatal("concurrent Close did not return while OnClose was running")
+		}
+		require.Equal(t, int32(1), calls.Load())
+
+		// Let the first Close finish after the concurrent call has returned.
+		releaseOnClose()
+		select {
+		case err := <-results:
+			require.NoError(t, err)
+		case <-time.After(time.Second):
+			t.Fatal("Close did not return after OnClose completed")
+		}
+
+		requireConnectionClosed(t, c)
+		require.NoError(t, c.Close())
+		require.Equal(t, int32(1), calls.Load())
+	})
+
+	t.Run("OnClose is not called after TriggerFailure", func(t *testing.T) {
+		var calls atomic.Int32
+		c, err := connection.New("", testSpec, readMessageLength, writeMessageLength,
+			connection.OnClose(func(_ *connection.Connection) error {
+				calls.Add(1)
+				return nil
+			}),
+		)
+		require.NoError(t, err)
+
+		c.TriggerFailure(errors.New("connection failed"))
+		require.NoError(t, c.Close())
+
+		requireConnectionClosed(t, c)
+		require.Zero(t, calls.Load())
+	})
+
+	t.Run("failure during OnClose does not double-close", func(t *testing.T) {
+		c, err := connection.New("", testSpec, readMessageLength, writeMessageLength,
+			connection.OnCloseCtx(func(_ context.Context, c *connection.Connection) error {
+				c.TriggerFailure(errors.New("connection failed during sign-off"))
+				return nil
+			}),
+		)
+		require.NoError(t, err)
+
+		require.NoError(t, c.Close())
+
+		requireConnectionClosed(t, c)
+		require.NoError(t, c.Close())
+	})
+
+	awaitResult := func(t *testing.T, name string, result <-chan error) error {
+		t.Helper()
+		select {
+		case err := <-result:
+			return err
+		case <-time.After(time.Second):
+			t.Fatalf("%s did not finish", name)
+			return nil
+		}
+	}
+
+	// Set up two requests: OnClose sends sign-off, while a separate paused Send
+	// keeps failure teardown from closing Done. Return a function to release that Send
+	// and a channel carrying the CloseCtx result.
+	startCloseDuringFailure := func(t *testing.T, ctx context.Context) (*connection.Connection, func(), <-chan error) {
+		t.Helper()
+
+		// Use net.Pipe to read the sign-off without replying, keeping OnClose in Send.
+		// NewTestServer would reply automatically and could finish Send before failure.
+		transport, peer := net.Pipe()
+		t.Cleanup(func() { require.NoError(t, peer.Close()) })
+
+		requestStarted := make(chan struct{})
+		requestRelease := make(chan struct{})
+		releaseRequest := sync.OnceFunc(func() { close(requestRelease) })
+		t.Cleanup(releaseRequest)
+		blockRequest := func(_ *connection.Options) error {
+			// Send has joined the pending-request wait group before applying options.
+			// Pausing here keeps it pending even after failure interrupts sign-off.
+			close(requestStarted)
+			<-requestRelease
+			return nil
+		}
+
+		message := iso8583.NewMessage(testSpec)
+		require.NoError(t, message.Marshal(baseFields{
+			MTI:  field.NewStringValue("0800"),
+			STAN: field.NewStringValue(getSTAN()),
+		}))
+		sendResult := make(chan error, 1)
+		c, err := connection.NewFrom(transport, testSpec, readMessageLength, writeMessageLength,
+			connection.OnCloseCtx(func(_ context.Context, c *connection.Connection) error {
+				_, err := c.Send(message)
+				sendResult <- err
+				return err
+			}),
+		)
+		require.NoError(t, err)
+
+		// Keep one Send in request preparation so failure teardown cannot finish.
+		// Omit STAN so it fails validation after release without another socket write.
+		pendingMessage := iso8583.NewMessage(testSpec)
+		requestResult := make(chan error, 1)
+		go func() {
+			_, err := c.Send(pendingMessage, blockRequest)
+			requestResult <- err
+		}()
+		t.Cleanup(func() {
+			releaseRequest()
+			require.ErrorContains(t, awaitResult(t, "pending request", requestResult), "STAN is missing")
+		})
+		select {
+		case <-requestStarted:
+		case <-time.After(time.Second):
+			t.Fatal("request preparation did not start")
+		}
+
+		closeResult := make(chan error, 1)
+		go func() { closeResult <- c.CloseCtx(ctx) }()
+
+		// Read the sign-off on the peer without replying, leaving OnClose in Send.
+		require.NoError(t, peer.SetReadDeadline(time.Now().Add(time.Second)))
+		length, err := readMessageLength(peer)
+		require.NoError(t, err)
+		_, err = io.ReadFull(peer, make([]byte, length))
+		require.NoError(t, err)
+
+		// Simulate a network failure on another goroutine while OnClose awaits a reply.
+		// Failure handling interrupts sign-off, then waits for the separate paused Send.
+		failureFinished := make(chan error, 1)
+		go func() {
+			c.TriggerFailure(errors.New("connection failed during sign-off"))
+			failureFinished <- nil
+		}()
+		t.Cleanup(func() {
+			releaseRequest()
+			require.NoError(t, awaitResult(t, "failure teardown", failureFinished))
+		})
+		// The callback can now return, but failure teardown still cannot close Done.
+		require.ErrorIs(t, awaitResult(t, "sign-off", sendResult), connection.ErrConnectionClosed)
+
+		return c, releaseRequest, closeResult
+	}
+
+	t.Run("Close waits for Done after concurrent failure during OnClose", func(t *testing.T) {
+		c, releaseRequest, closeResult := startCloseDuringFailure(t, t.Context())
+
+		// Failure unblocked sign-off, but the other request still prevents Done closing.
+		select {
+		case err := <-closeResult:
+			require.NoError(t, err)
+			t.Fatal("Close returned before Done closed while a request was still pending")
+		case <-time.After(100 * time.Millisecond):
+		}
+
+		// Once the pending request finishes, failure teardown and Close can complete.
+		releaseRequest()
+		require.NoError(t, awaitResult(t, "Close", closeResult))
+		requireConnectionClosed(t, c)
+	})
+
+	t.Run("CloseCtx honors cancellation while waiting for failure teardown", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		t.Cleanup(cancel)
+		c, releaseRequest, closeResult := startCloseDuringFailure(t, ctx)
+
+		// Cancellation ends the caller's wait without waiting for the paused Send.
+		cancel()
+		require.ErrorIs(t, awaitResult(t, "CloseCtx", closeResult), context.Canceled)
+
+		// Failure handling continues independently and finishes once Send is released.
+		releaseRequest()
+		requireConnectionClosed(t, c)
 	})
 }
 
