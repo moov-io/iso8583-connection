@@ -594,6 +594,70 @@ func TestClient_Write(t *testing.T) {
 	})
 }
 
+func TestClient_PackBeforeQueue(t *testing.T) {
+	newInvalidMessage := func(t *testing.T) *iso8583.Message {
+		t.Helper()
+
+		message := iso8583.NewMessage(testSpec)
+
+		// setting MTI to 1 digit will cause PackError as it should be 4 digits
+		message.MTI("1")
+
+		// set STAN as the request ID generator checks it before packing
+		require.NoError(t, message.Field(11, "123456"))
+
+		return message
+	}
+
+	// connection.New does not start the read/write loops. If a request reaches
+	// requestsCh, it blocks forever. Pack errors must surface before that.
+	newConnection := func(t *testing.T) *connection.Connection {
+		t.Helper()
+
+		c, err := connection.New("127.0.0.1:0", testSpec, readMessageLength, writeMessageLength)
+		require.NoError(t, err)
+
+		return c
+	}
+
+	t.Run("Send returns PackError before queueing the request", func(t *testing.T) {
+		c := newConnection(t)
+		message := newInvalidMessage(t)
+
+		errCh := make(chan error, 1)
+		go func() {
+			_, err := c.Send(message)
+			errCh <- err
+		}()
+
+		select {
+		case err := <-errCh:
+			var packError *iso8583Errors.PackError
+			require.ErrorAs(t, err, &packError)
+		case <-time.After(time.Second):
+			t.Fatal("Send blocked before packing the message")
+		}
+	})
+
+	t.Run("Reply returns PackError before queueing the request", func(t *testing.T) {
+		c := newConnection(t)
+		message := newInvalidMessage(t)
+
+		errCh := make(chan error, 1)
+		go func() {
+			errCh <- c.Reply(message)
+		}()
+
+		select {
+		case err := <-errCh:
+			var packError *iso8583Errors.PackError
+			require.ErrorAs(t, err, &packError)
+		case <-time.After(time.Second):
+			t.Fatal("Reply blocked before packing the message")
+		}
+	})
+}
+
 func TestClient_Send(t *testing.T) {
 	server, err := NewTestServer()
 	require.NoError(t, err)
