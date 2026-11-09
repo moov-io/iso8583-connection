@@ -658,6 +658,96 @@ func TestClient_PackBeforeQueue(t *testing.T) {
 	})
 }
 
+// packingMessageWriter mimics a custom writer that packs the message itself,
+// like the gateway message IO does.
+type packingMessageWriter struct {
+	writeLength connection.MessageLengthWriter
+}
+
+func (w *packingMessageWriter) WriteMessage(out io.Writer, message *iso8583.Message) error {
+	packed, err := message.Pack()
+	if err != nil {
+		return err
+	}
+
+	if _, err := w.writeLength(out, len(packed)); err != nil {
+		return err
+	}
+
+	_, err = out.Write(packed)
+	return err
+}
+
+type countingEncoder struct {
+	count *atomic.Int32
+}
+
+func (e countingEncoder) Encode(data []byte) ([]byte, error) {
+	e.count.Add(1)
+	return encoding.ASCII.Encode(data)
+}
+
+func (e countingEncoder) Decode(data []byte, length int) ([]byte, int, error) {
+	return encoding.ASCII.Decode(data, length)
+}
+
+func TestClient_MessageWriterPacksOnce(t *testing.T) {
+	server, err := NewTestServer()
+	require.NoError(t, err)
+	defer server.Close()
+
+	var packCount atomic.Int32
+
+	spec := &iso8583.MessageSpec{
+		Name: "ISO 8583 v1987 ASCII",
+		Fields: map[int]field.Field{
+			0: field.NewString(&field.Spec{
+				Length:      4,
+				Description: "Message Type Indicator",
+				Enc:         encoding.ASCII,
+				Pref:        prefix.ASCII.Fixed,
+			}),
+			1: field.NewBitmap(&field.Spec{
+				Length:      8,
+				Description: "Bitmap",
+				Enc:         encoding.Binary,
+				Pref:        prefix.Binary.Fixed,
+			}),
+			2: field.NewString(&field.Spec{
+				Length:      3,
+				Description: "Test Case Code",
+				Enc:         countingEncoder{count: &packCount},
+				Pref:        prefix.ASCII.Fixed,
+			}),
+			11: field.NewString(&field.Spec{
+				Length:      6,
+				Description: "Systems Trace Audit Number (STAN)",
+				Enc:         encoding.ASCII,
+				Pref:        prefix.ASCII.Fixed,
+			}),
+		},
+	}
+
+	c, err := connection.New(server.Addr, spec, readMessageLength, writeMessageLength,
+		connection.SetMessageWriter(&packingMessageWriter{writeLength: writeMessageLength}),
+	)
+	require.NoError(t, err)
+	require.NoError(t, c.Connect())
+	defer c.Close()
+
+	message := iso8583.NewMessage(spec)
+	require.NoError(t, message.Marshal(baseFields{
+		MTI:          field.NewStringValue("0800"),
+		TestCaseCode: field.NewStringValue(TestCaseReply),
+		STAN:         field.NewStringValue(getSTAN()),
+	}))
+
+	_, err = c.Send(message)
+	require.NoError(t, err)
+
+	require.Equal(t, int32(1), packCount.Load())
+}
+
 func TestClient_Send(t *testing.T) {
 	server, err := NewTestServer()
 	require.NoError(t, err)
