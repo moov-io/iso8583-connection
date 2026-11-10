@@ -406,6 +406,9 @@ type request struct {
 	// message to send
 	message *iso8583.Message
 
+	// packed message, ready to be written to the connection
+	packed []byte
+
 	// ID of the request (based on STAN, RRN, etc.)
 	requestID string
 
@@ -467,8 +470,14 @@ func (c *Connection) Send(message *iso8583.Message, options ...Option) (*iso8583
 		return nil, fmt.Errorf("creating request ID: %w", err)
 	}
 
+	packed, err := c.packMessage(message)
+	if err != nil {
+		return nil, err
+	}
+
 	req := request{
 		message:   message,
+		packed:    packed,
 		requestID: reqID,
 		replyCh:   make(chan *iso8583.Message),
 		errCh:     make(chan error),
@@ -508,9 +517,23 @@ func (c *Connection) Send(message *iso8583.Message, options ...Option) (*iso8583
 	return resp, err
 }
 
-func (c *Connection) writeMessage(message *iso8583.Message) error {
+func (c *Connection) packMessage(message *iso8583.Message) ([]byte, error) {
+	// a custom message writer receives the message and does its own packing
 	if c.Opts.MessageWriter != nil {
-		err := c.Opts.MessageWriter.WriteMessage(c.conn, message)
+		return nil, nil
+	}
+
+	packed, err := message.Pack()
+	if err != nil {
+		return nil, fmt.Errorf("packing message: %w", err)
+	}
+
+	return packed, nil
+}
+
+func (c *Connection) writeMessage(req request) error {
+	if c.Opts.MessageWriter != nil {
+		err := c.Opts.MessageWriter.WriteMessage(c.conn, req.message)
 		if err != nil {
 			return fmt.Errorf("writing message: %w", err)
 		}
@@ -520,13 +543,10 @@ func (c *Connection) writeMessage(message *iso8583.Message) error {
 
 	// if no custom message writer is set, use default one
 
-	packed, err := message.Pack()
-	if err != nil {
-		return fmt.Errorf("packing message: %w", err)
-	}
+	packed := req.packed
 
 	// create header
-	_, err = c.writeMessageLength(c.conn, len(packed))
+	_, err := c.writeMessageLength(c.conn, len(packed))
 	if err != nil {
 		return fmt.Errorf("writing message length: %w", err)
 	}
@@ -554,8 +574,14 @@ func (c *Connection) Reply(message *iso8583.Message) error {
 	c.mutex.Unlock()
 	defer c.wg.Done()
 
+	packed, err := c.packMessage(message)
+	if err != nil {
+		return err
+	}
+
 	req := request{
 		message: message,
+		packed:  packed,
 		errCh:   make(chan error),
 	}
 
@@ -563,8 +589,6 @@ func (c *Connection) Reply(message *iso8583.Message) error {
 
 	sendTimeoutTimer := time.NewTimer(c.Opts.SendTimeout)
 	defer sendTimeoutTimer.Stop()
-
-	var err error
 
 	select {
 	case err = <-req.errCh:
@@ -631,7 +655,7 @@ func (c *Connection) writeLoop() {
 				c.pendingRequestsMu.Unlock()
 			}
 
-			err = c.writeMessage(req.message)
+			err = c.writeMessage(req)
 			if err != nil {
 				c.handleError(fmt.Errorf("writing message: %w", err))
 
