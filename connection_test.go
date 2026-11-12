@@ -2099,3 +2099,66 @@ func TestClient_PendingRequests(t *testing.T) {
 		}
 	})
 }
+
+func TestClient_SendWithPendingRequestID(t *testing.T) {
+	type sendResult struct {
+		reply *iso8583.Message
+		err   error
+	}
+
+	c, peer := pipeConnection(t)
+
+	stan := getSTAN()
+
+	first := newSTANMessage(t, stan)
+	require.NoError(t, first.Field(63, "FIRST"))
+
+	firstResult := make(chan sendResult, 1)
+	go func() {
+		reply, err := c.Send(first, connection.SendTimeout(time.Second))
+		firstResult <- sendResult{reply, err}
+	}()
+
+	request, err := readPeerMessage(peer)
+	require.NoError(t, err)
+
+	// the peer reads everything that is written after the first request
+	written := make(chan *iso8583.Message, 1)
+	go func() {
+		message, err := readPeerMessage(peer)
+		if err == nil {
+			written <- message
+		}
+	}()
+
+	// second request with the same STAN while the first one is pending
+	second := newSTANMessage(t, stan)
+	require.NoError(t, second.Field(63, "SECND"))
+
+	secondResult := make(chan sendResult, 1)
+	go func() {
+		reply, err := c.Send(second, connection.SendTimeout(time.Second))
+		secondResult <- sendResult{reply, err}
+	}()
+
+	// let the second request reach the connection, then reply to the first
+	time.Sleep(100 * time.Millisecond)
+	request.MTI("0810")
+	writePeerMessages(t, peer, request)
+
+	result := <-secondResult
+	require.ErrorIs(t, result.err, connection.ErrDuplicateRequestID)
+	require.Nil(t, result.reply)
+
+	result = <-firstResult
+	require.NoError(t, result.err)
+	marker, err := result.reply.GetString(63)
+	require.NoError(t, err)
+	require.Equal(t, "FIRST", marker)
+
+	select {
+	case <-written:
+		t.Fatal("request with the STAN of a pending request was written")
+	default:
+	}
+}

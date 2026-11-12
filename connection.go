@@ -19,6 +19,12 @@ import (
 var (
 	ErrConnectionClosed = errors.New("connection closed")
 	ErrSendTimeout      = errors.New("message send timeout")
+
+	// ErrDuplicateRequestID is returned by Send when another request with
+	// the same request ID is still waiting for its reply. The message is not
+	// sent, because its reply could not be told apart from the reply to the
+	// pending request.
+	ErrDuplicateRequestID = errors.New("request with the same ID is pending")
 )
 
 // RejectedMessageError is returned to the `Send` method caller when message is rejected.
@@ -492,7 +498,11 @@ func (c *Connection) Send(message *iso8583.Message, options ...Option) (*iso8583
 	// the request is removed under the same lock no reply can be delivered to
 	// it, and a reply delivered before is in replyCh.
 	c.pendingRequestsMu.Lock()
-	delete(c.respMap, req.requestID)
+	// remove the request only if it is ours: a request refused with
+	// ErrDuplicateRequestID must not remove the pending one
+	if pending, found := c.respMap[req.requestID]; found && pending.replyCh == req.replyCh {
+		delete(c.respMap, req.requestID)
+	}
 	c.pendingRequestsMu.Unlock()
 
 	// reply can still be received together with SendTimeout or another
@@ -627,11 +637,22 @@ func (c *Connection) writeLoop() {
 			// if it's a request message, not a response
 			if req.replyCh != nil {
 				c.pendingRequestsMu.Lock()
-				c.respMap[req.requestID] = response{
-					replyCh: req.replyCh,
-					errCh:   req.errCh,
+				_, pending := c.respMap[req.requestID]
+				if !pending {
+					c.respMap[req.requestID] = response{
+						replyCh: req.replyCh,
+						errCh:   req.errCh,
+					}
 				}
 				c.pendingRequestsMu.Unlock()
+
+				// the reply to this message could not be told apart from
+				// the reply to the pending request, so we do not send it
+				if pending {
+					deliverErr(req.errCh, fmt.Errorf("%w: %s", ErrDuplicateRequestID, req.requestID))
+
+					continue
+				}
 			}
 
 			err = c.writeMessage(req.message)
