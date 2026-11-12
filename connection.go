@@ -285,7 +285,7 @@ func (c *Connection) handleConnectionError(err error) {
 
 	c.pendingRequestsMu.Lock()
 	for _, resp := range c.respMap {
-		resp.errCh <- ErrConnectionClosed
+		deliverErr(resp.errCh, ErrConnectionClosed)
 	}
 	c.pendingRequestsMu.Unlock()
 
@@ -296,7 +296,7 @@ func (c *Connection) handleConnectionError(err error) {
 		for {
 			select {
 			case req := <-c.requestsCh:
-				req.errCh <- ErrConnectionClosed
+				deliverErr(req.errCh, ErrConnectionClosed)
 			case <-c.done:
 				return
 			}
@@ -470,8 +470,8 @@ func (c *Connection) Send(message *iso8583.Message, options ...Option) (*iso8583
 	req := request{
 		message:   message,
 		requestID: reqID,
-		replyCh:   make(chan *iso8583.Message),
-		errCh:     make(chan error),
+		replyCh:   make(chan *iso8583.Message, 1),
+		errCh:     make(chan error, 1),
 	}
 
 	var resp *iso8583.Message
@@ -486,24 +486,27 @@ func (c *Connection) Send(message *iso8583.Message, options ...Option) (*iso8583
 	case err = <-req.errCh:
 	case <-sendTimeoutTimer.C:
 		err = ErrSendTimeout
-		// reply can still be sent after SendTimeout received.
-		// if we have InboundMessageHandler set, then we want reply
-		// to be handled by it.
-		defer func() {
-			select {
-			case resp := <-req.replyCh:
-				if c.Opts.InboundMessageHandler != nil {
-					go c.Opts.InboundMessageHandler(c, resp)
-				}
-			default:
-				return
-			}
-		}()
 	}
 
+	// handleResponse delivers replies while holding pendingRequestsMu, so once
+	// the request is removed under the same lock no reply can be delivered to
+	// it, and a reply delivered before is in replyCh.
 	c.pendingRequestsMu.Lock()
 	delete(c.respMap, req.requestID)
 	c.pendingRequestsMu.Unlock()
+
+	// reply can still be received together with SendTimeout or another
+	// error. If we have InboundMessageHandler set, then we want reply to be
+	// handled by it.
+	if err != nil {
+		select {
+		case reply := <-req.replyCh:
+			if c.Opts.InboundMessageHandler != nil {
+				go c.Opts.InboundMessageHandler(c, reply)
+			}
+		default:
+		}
+	}
 
 	return resp, err
 }
@@ -556,7 +559,7 @@ func (c *Connection) Reply(message *iso8583.Message) error {
 
 	req := request{
 		message: message,
-		errCh:   make(chan error),
+		errCh:   make(chan error, 1),
 	}
 
 	c.requestsCh <- req
@@ -641,7 +644,7 @@ func (c *Connection) writeLoop() {
 					// We don't set all type of errors to errCh as this case is handled
 					// by handleConnectionError(err) which sends the same error to all
 					// pending requests, including this one
-					req.errCh <- err
+					deliverErr(req.errCh, err)
 
 					err = nil
 
@@ -657,7 +660,7 @@ func (c *Connection) writeLoop() {
 			// or send timeout. Regular requests waits for responses
 			// to be received to their replyCh channel.
 			if req.replyCh == nil {
-				req.errCh <- nil
+				deliverErr(req.errCh, nil)
 			}
 
 		case dw := <-c.directWriteCh:
@@ -784,14 +787,28 @@ func (c *Connection) handleResponse(message *iso8583.Message) {
 			return
 		}
 
-		// send response message to the reply channel
+		// send response message to the reply channel. Lookup and delivery
+		// happen under the same lock Send uses to remove the request, so
+		// the reply is never lost. The request is removed when its reply is
+		// delivered, so a second reply with the same ID is handled as
+		// unmatched below.
 		c.pendingRequestsMu.Lock()
-		response, found := c.respMap[reqID]
+		delivered := false
+		if response, found := c.respMap[reqID]; found {
+			select {
+			case response.replyCh <- message:
+				delete(c.respMap, reqID)
+				delivered = true
+			default:
+			}
+		}
 		c.pendingRequestsMu.Unlock()
 
-		if found {
-			response.replyCh <- message
-		} else if c.Opts.InboundMessageHandler != nil {
+		if delivered {
+			return
+		}
+
+		if c.Opts.InboundMessageHandler != nil {
 			go c.Opts.InboundMessageHandler(c, message)
 		} else {
 			c.handleError(fmt.Errorf("can't find request for ID: %s", reqID))
@@ -839,13 +856,16 @@ func (c *Connection) RejectMessage(rejectedMessage *iso8583.Message, rejectionEr
 
 	c.pendingRequestsMu.Lock()
 	response, found := c.respMap[reqID]
+	delivered := found && deliverErr(response.errCh, &RejectedMessageError{Err: rejectionError})
 	c.pendingRequestsMu.Unlock()
 
 	if !found {
 		return fmt.Errorf("can't find response for ID: %s", reqID)
 	}
 
-	response.errCh <- &RejectedMessageError{Err: rejectionError}
+	if !delivered {
+		return fmt.Errorf("request with ID %s already has a result", reqID)
+	}
 
 	return nil
 }
@@ -863,4 +883,15 @@ func (c *Connection) isAlive() bool {
 	defer c.mutex.Unlock()
 
 	return !c.closing
+}
+
+// deliverErr sends err to the buffered error channel of a request without
+// blocking. It returns false if the channel already holds a result.
+func deliverErr(errCh chan error, err error) bool {
+	select {
+	case errCh <- err:
+		return true
+	default:
+		return false
+	}
 }
