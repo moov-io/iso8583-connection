@@ -86,7 +86,7 @@ This section explains the various stages at which different handler functions ar
 
 #### On message receipt:
 
-- **`InboundMessageHandler (async)`**: This asynchronous handler is triggered when an incoming message is received, or a received message does not have a matching request (this can happen when we return an error for the `Send` method after a timeout and then, subsequently, receive a response, aka late response).
+- **`InboundMessageHandler (async)`**: This asynchronous handler is triggered when an incoming message is received, or a received message does not have a matching request (this can happen when we return an error for the `Send` method after a timeout and then, subsequently, receive a response, aka late response, or when the server sends more than one response to the same request).
 
 #### On read timeout:
 
