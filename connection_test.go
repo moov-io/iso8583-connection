@@ -1807,3 +1807,358 @@ func processMessages(b *testing.B, m int, c *connection.Connection) {
 		b.Fatal("sending message: ", gerr)
 	}
 }
+
+// pipeConnection returns a connection over net.Pipe and the peer end of the
+// pipe. The test reads requests from the peer and writes replies to it, so it
+// controls exactly when each reply arrives. Writes block until the peer reads.
+func pipeConnection(t *testing.T, options ...connection.Option) (*connection.Connection, net.Conn) {
+	t.Helper()
+
+	transport, peer := net.Pipe()
+
+	c, err := connection.NewFrom(transport, testSpec, readMessageLength, writeMessageLength, options...)
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		closed := make(chan error, 1)
+		go func() { closed <- c.Close() }()
+
+		select {
+		case err := <-closed:
+			require.NoError(t, err)
+		case <-time.After(5 * time.Second):
+			t.Error("connection did not close")
+		}
+
+		peer.Close()
+	})
+
+	return c, peer
+}
+
+func readPeerMessage(peer net.Conn) (*iso8583.Message, error) {
+	err := peer.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if err != nil {
+		return nil, err
+	}
+
+	length, err := readMessageLength(peer)
+	if err != nil {
+		return nil, err
+	}
+
+	raw := make([]byte, length)
+	_, err = io.ReadFull(peer, raw)
+	if err != nil {
+		return nil, err
+	}
+
+	message := iso8583.NewMessage(testSpec)
+	err = message.Unpack(raw)
+	if err != nil {
+		return nil, err
+	}
+
+	return message, nil
+}
+
+// writePeerMessages writes all messages to the peer in a single write
+func writePeerMessages(t *testing.T, peer net.Conn, messages ...*iso8583.Message) {
+	t.Helper()
+
+	var buf bytes.Buffer
+	for _, message := range messages {
+		packed, err := message.Pack()
+		require.NoError(t, err)
+
+		_, err = writeMessageLength(&buf, len(packed))
+		require.NoError(t, err)
+
+		buf.Write(packed)
+	}
+
+	require.NoError(t, peer.SetWriteDeadline(time.Now().Add(5*time.Second)))
+	_, err := peer.Write(buf.Bytes())
+	require.NoError(t, err)
+}
+
+func newSTANMessage(t *testing.T, stan string) *iso8583.Message {
+	t.Helper()
+
+	message := iso8583.NewMessage(testSpec)
+	err := message.Marshal(baseFields{
+		MTI:  field.NewStringValue("0800"),
+		STAN: field.NewStringValue(stan),
+	})
+	require.NoError(t, err)
+
+	return message
+}
+
+func requireWaitGroupDone(t *testing.T, wg *sync.WaitGroup, msg string) {
+	t.Helper()
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal(msg)
+	}
+}
+
+func TestClient_PendingRequests(t *testing.T) {
+	t.Run("second reply to a request is handled as unmatched and does not block", func(t *testing.T) {
+		var unmatched atomic.Int32
+		c, peer := pipeConnection(t, connection.InboundMessageHandler(func(_ *connection.Connection, _ *iso8583.Message) {
+			unmatched.Add(1)
+		}))
+
+		const rounds = 50
+		for i := 0; i < rounds; i++ {
+			message := newSTANMessage(t, getSTAN())
+
+			sendErr := make(chan error, 1)
+			go func() {
+				_, err := c.Send(message, connection.SendTimeout(5*time.Second))
+				sendErr <- err
+			}()
+
+			request, err := readPeerMessage(peer)
+			require.NoError(t, err)
+			request.MTI("0810")
+
+			// the peer replies twice
+			writePeerMessages(t, peer, request, request)
+
+			require.NoError(t, <-sendErr)
+		}
+
+		// every second reply reaches InboundMessageHandler
+		require.Eventually(t, func() bool {
+			return unmatched.Load() == rounds
+		}, 5*time.Second, 10*time.Millisecond, "second replies handled as unmatched: %d of %d", unmatched.Load(), rounds)
+	})
+
+	t.Run("reply received as the connection fails is returned or handled as unmatched", func(t *testing.T) {
+		const rounds = 50
+
+		for i := 0; i < rounds; i++ {
+			var unmatched atomic.Int32
+			c, peer := pipeConnection(t, connection.InboundMessageHandler(func(_ *connection.Connection, _ *iso8583.Message) {
+				unmatched.Add(1)
+			}))
+
+			message := newSTANMessage(t, getSTAN())
+
+			sendErr := make(chan error, 1)
+			go func() {
+				_, err := c.Send(message, connection.SendTimeout(5*time.Second))
+				sendErr <- err
+			}()
+
+			request, err := readPeerMessage(peer)
+			require.NoError(t, err)
+			request.MTI("0810")
+
+			// the peer replies and closes the connection right away
+			writePeerMessages(t, peer, request)
+			peer.Close()
+
+			select {
+			case err = <-sendErr:
+			case <-time.After(5 * time.Second):
+				t.Fatal("Send did not return after the connection failed")
+			}
+
+			if err == nil {
+				continue
+			}
+			require.ErrorIs(t, err, connection.ErrConnectionClosed)
+
+			// Send did not return the reply, so it reaches InboundMessageHandler
+			require.Eventually(t, func() bool {
+				return unmatched.Load() == 1
+			}, time.Second, 10*time.Millisecond, "reply was lost")
+		}
+	})
+
+	t.Run("pending requests return when connection fails while they time out", func(t *testing.T) {
+		const (
+			rounds  = 30
+			senders = 20
+			timeout = 30 * time.Millisecond
+		)
+
+		for i := 0; i < rounds; i++ {
+			c, peer := pipeConnection(t)
+
+			// the peer reads all requests and does not reply
+			go func() { _, _ = io.Copy(io.Discard, peer) }()
+
+			var wg sync.WaitGroup
+			for s := 0; s < senders; s++ {
+				message := newSTANMessage(t, getSTAN())
+
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					_, _ = c.Send(message, connection.SendTimeout(timeout))
+				}()
+			}
+
+			// the peer closes the connection when requests time out
+			time.Sleep(timeout - time.Duration(i%3)*time.Millisecond)
+			peer.Close()
+
+			requireWaitGroupDone(t, &wg, "pending requests did not return after the connection failed")
+
+			select {
+			case <-c.Done():
+			case <-time.After(5 * time.Second):
+				t.Fatal("connection did not close")
+			}
+		}
+	})
+
+	t.Run("reply that timed out does not block writing of next messages", func(t *testing.T) {
+		c, peer := pipeConnection(t, connection.SendTimeout(100*time.Millisecond))
+
+		// the peer does not read, so the reply is not written in time
+		reply := newSTANMessage(t, getSTAN())
+		reply.MTI("0810")
+		require.ErrorIs(t, c.Reply(reply), connection.ErrSendTimeout)
+
+		// the peer reads again and the reply is written
+		_, err := readPeerMessage(peer)
+		require.NoError(t, err)
+
+		// the next message is written too
+		message := newSTANMessage(t, getSTAN())
+
+		sendErr := make(chan error, 1)
+		go func() {
+			_, err := c.Send(message, connection.SendTimeout(5*time.Second))
+			sendErr <- err
+		}()
+
+		request, err := readPeerMessage(peer)
+		require.NoError(t, err, "next message was not written")
+		request.MTI("0810")
+		writePeerMessages(t, peer, request)
+
+		require.NoError(t, <-sendErr)
+	})
+
+	t.Run("RejectMessage does not block when the request already has a result", func(t *testing.T) {
+		c, peer := pipeConnection(t)
+
+		const (
+			rounds    = 50
+			rejecters = 4
+		)
+
+		for i := 0; i < rounds; i++ {
+			stan := getSTAN()
+			message := newSTANMessage(t, stan)
+
+			sendErr := make(chan error, 1)
+			go func() {
+				_, err := c.Send(message, connection.SendTimeout(5*time.Second))
+				sendErr <- err
+			}()
+
+			// the request is pending once the peer has read it
+			_, err := readPeerMessage(peer)
+			require.NoError(t, err)
+
+			// the same request is rejected several times at once, as when
+			// both the peer and a local check reject it
+			start := make(chan struct{})
+			var wg sync.WaitGroup
+			for r := 0; r < rejecters; r++ {
+				rejected := newSTANMessage(t, stan)
+
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					<-start
+					_ = c.RejectMessage(rejected, errors.New("message was rejected"))
+				}()
+			}
+			close(start)
+
+			requireWaitGroupDone(t, &wg, "RejectMessage did not return")
+
+			var rejectedErr *connection.RejectedMessageError
+			require.ErrorAs(t, <-sendErr, &rejectedErr)
+		}
+	})
+}
+
+func TestClient_SendWithPendingRequestID(t *testing.T) {
+	type sendResult struct {
+		reply *iso8583.Message
+		err   error
+	}
+
+	c, peer := pipeConnection(t)
+
+	stan := getSTAN()
+
+	first := newSTANMessage(t, stan)
+	require.NoError(t, first.Field(63, "FIRST"))
+
+	firstResult := make(chan sendResult, 1)
+	go func() {
+		reply, err := c.Send(first, connection.SendTimeout(time.Second))
+		firstResult <- sendResult{reply, err}
+	}()
+
+	request, err := readPeerMessage(peer)
+	require.NoError(t, err)
+
+	// the peer reads everything that is written after the first request
+	written := make(chan *iso8583.Message, 1)
+	go func() {
+		message, err := readPeerMessage(peer)
+		if err == nil {
+			written <- message
+		}
+	}()
+
+	// second request with the same STAN while the first one is pending
+	second := newSTANMessage(t, stan)
+	require.NoError(t, second.Field(63, "SECND"))
+
+	secondResult := make(chan sendResult, 1)
+	go func() {
+		reply, err := c.Send(second, connection.SendTimeout(time.Second))
+		secondResult <- sendResult{reply, err}
+	}()
+
+	// let the second request reach the connection, then reply to the first
+	time.Sleep(100 * time.Millisecond)
+	request.MTI("0810")
+	writePeerMessages(t, peer, request)
+
+	result := <-secondResult
+	require.ErrorIs(t, result.err, connection.ErrDuplicateRequestID)
+	require.Nil(t, result.reply)
+
+	result = <-firstResult
+	require.NoError(t, result.err)
+	marker, err := result.reply.GetString(63)
+	require.NoError(t, err)
+	require.Equal(t, "FIRST", marker)
+
+	select {
+	case <-written:
+		t.Fatal("request with the STAN of a pending request was written")
+	default:
+	}
+}
